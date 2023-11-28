@@ -8,8 +8,11 @@ from enum import Enum
 import random
 from torch.utils.data import DataLoader
 
+import numpy as np
+
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 
+import copy
 
 class SampleSource(Enum):
     Student = 1
@@ -56,22 +59,22 @@ class DistillTrainer(Trainer):
         self.online_eval_interval = args.online_eval_interval
         self.online_update_interval = args.online_update_interval
         self.buffer = []
-
-        self.max_new_tokens = 128
-
         self.sample_steps = []
 
         self.sample_source = SAMPLE_SOURCE_MAP[args.sample_source]
         self.kl_method = KL_METHOD_MAP[args.kl_method]
 
+        self.max_new_tokens = 128
+
     def training_step(self, model, inputs):
         self.train_step_cnt += 1
-        if self.mode == "offline":
-            return self.offline_training_step(model, inputs)
-        elif self.mode == "online":
-            return self.online_training_step(model, inputs)
-        else:
-            raise ValueError()
+        return self.consistency_training_step(model, inputs)
+        #if self.mode == "offline":
+        #    return self.offline_training_step(model, inputs)
+        #elif self.mode == "online":
+        #    return self.online_training_step(model, inputs)
+        #else:
+        #    raise ValueError()
 
     def online_training_step(self, model, inputs):
         max_new_tokens = self.max_new_tokens
@@ -238,18 +241,18 @@ class DistillTrainer(Trainer):
         output_mask = generated_ids[..., 1:] == self.tokenizer.pad_token_id
         # Ignore prompt when calculating loss
         output_mask[..., :prompt_len-1] = True
-            if False:
-                print("\n")
-                print(generated_ids[:, prompt_len:])
-                print("[prompt]", self.tokenizer.batch_decode(
-                    inputs["prompt_ids"], skip_special_tokens=True))
-                print("[student] ", self.tokenizer.batch_decode(
-                    generated_ids[:, prompt_len:]))
-                labels = torch.where(
-                    inputs["labels"] == IGNORE_TOKEN_ID, self.tokenizer.unk_token_id, inputs["labels"])
-                print("[teacher]", self.tokenizer.batch_decode(
-                    labels, skip_special_tokens=True))
-                print(f"bsz: {bsz}, total_len: {total_seq_len}, gen_len: {gen_len}, ",
+        if False:
+            print("\n")
+            print(generated_ids[:, prompt_len:])
+            print("[prompt]", self.tokenizer.batch_decode(
+                inputs["prompt_ids"], skip_special_tokens=True))
+            print("[student] ", self.tokenizer.batch_decode(
+                generated_ids[:, prompt_len:]))
+            labels = torch.where(
+                inputs["labels"] == IGNORE_TOKEN_ID, self.tokenizer.unk_token_id, inputs["labels"])
+            print("[teacher]", self.tokenizer.batch_decode(
+                labels, skip_special_tokens=True))
+            print(f"bsz: {bsz}, total_len: {total_seq_len}, gen_len: {gen_len}, ",
                       f"output_sum:{(~output_mask).sum()}, atten_mask: {attention_mask.sum()}")
 
         
@@ -320,6 +323,62 @@ class DistillTrainer(Trainer):
             print(f"Total step time: {sychronize_time() - step_start_time}")
         return loss.detach()
 
+    def consistency_training_step(self, model, inputs):
+        debug = False
+        max_new_tokens = 32
+        #max_seq_len = 128
+        student_temperature = 1.0
+        teacher_temperature = 1.0
+
+        all_losses = []        
+
+        bsz = inputs["input_ids"].shape[0]
+        input_ids = inputs["input_ids"]
+        attention_mask = inputs["attention_mask"]
+
+        with torch.no_grad():
+            jacobian_trajectory, teacher_logits = self.get_jacobian_trajectory(self.teacher_model, self.tokenizer, input_ids, attention_mask, max_new_tokens)
+        if debug:
+            print(self.tokenizer.decode(input_ids[0], skip_special_tokens=True))
+            print(self.tokenizer.decode(jacobian_trajectory[-1][0], skip_special_tokens=True))
+
+        jacobi_attention_mask = torch.full_like(jacobian_trajectory[0], 1).to(input_ids.device)
+
+        #eos_reached = torch.tensor([False] * bsz, device="cuda")
+
+        for i in range(len(jacobian_trajectory)-1, -1, -2):
+            for j in range(bsz):
+                prompt_len = len(attention_mask[j])
+                if len(torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id))==0:
+                    # no EOS, continue
+                    continue
+                # otherwise, set tokens coming after EOS as pad 
+                trajectory_copy = jacobian_trajectory[i].clone().detach()
+                trajectory_copy[j, int(torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id)[0][0].item())+1:] = self.tokenizer.pad_token_id
+                jacobian_trajectory[i] = trajectory_copy
+            
+            # get attention mask and get logits
+            jacobi_attention_mask = jacobian_trajectory[i] != self.tokenizer.pad_token_id
+            logits_i = self.get_logits(model, jacobian_trajectory[i].clone(), jacobi_attention_mask)
+
+            # train only on generated content
+            output_mask = jacobian_trajectory[i][..., 1:] == self.tokenizer.pad_token_id #it is used to mask pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
+            # mask out prompt
+            output_mask[torch.where(attention_mask) == 1] = True
+
+            loss = self.soft_cross_entropy(
+                logits_i[..., :-1, :].float() / student_temperature,
+                teacher_logits[..., :-1, :].float() / teacher_temperature,
+                output_mask[..., 1:, :]
+            )
+            loss.backward()
+            all_losses.append(loss)
+
+        print(f'max loss: {max(all_losses)}')
+        print(f'min loss: {min(all_losses)}')
+        print(f'avg loss: {sum(all_losses)/len(all_losses)}')
+        return max(all_losses).detach()
+    
     def log(self, logs):
         # Remove the 'loss' entry with value 0 before calling the superclass method
         if 'loss' in logs and logs['loss'] == -1:
@@ -354,7 +413,7 @@ class DistillTrainer(Trainer):
             find = False
             for callback in self.callback_handler.callbacks:
                 if isinstance(callback, DistillTrainerCallback):
-                    print(f"Answer: {tokenizer.decode(generated_ids, skip_special_tokens=True)}")
+                    #print(f"Answer: {tokenizer.decode(generated_ids, skip_special_tokens=True)}")
                     find = True
             assert find
 
@@ -369,6 +428,57 @@ class DistillTrainer(Trainer):
     #     super().train(resume_from_checkpoint)
 
     ###################### Helper Functions #############################
+    @torch.inference_mode()
+    def get_jacobian_trajectory(
+        self,
+        model,
+        tokenizer,
+        input_ids,
+        attention_mask,
+        max_new_tokens,
+    ):
+        bsz = input_ids.shape[0]
+        prompt_lens = [torch.sum(t) for t in attention_mask]
+
+        max_total_len = max(prompt_lens) + max_new_tokens
+
+        # initialize the first point of jacobian trajectory
+        starting_tokens = torch.full((bsz, max_total_len), tokenizer.pad_token_id, dtype=torch.long, device="cuda")
+        for i in range(bsz):
+            starting_tokens[i, :] = torch.tensor(random.choices(input_ids[i][attention_mask[i]==1], k=max_total_len), dtype=torch.long, device="cuda")
+        for k, t in enumerate(input_ids):
+            prompt = t[attention_mask[k]]
+            starting_tokens[i, :prompt_lens[k]] = prompt.detach().cuda()
+        
+        # begin jacobian iteration
+        condition = False
+        trajectory = []
+        logits_trajectory = []
+        itr = 0
+        next_generation = starting_tokens
+        jacobi_attention_mask = torch.full_like(next_generation, 1).to(starting_tokens.device)
+        trajectory.append(starting_tokens)
+        while condition == False:
+            if itr % 10 == 0:
+                print(f'iteration: {itr}')
+            itr+=1
+            current_generation = next_generation
+            logits = self.get_logits(model, current_generation, jacobi_attention_mask)
+            logits_trajectory.append(logits)
+            # TODO: optimize sampling performance
+            tau = 0.001  # argmax
+            distribution = torch.softmax(logits / tau, dim=-1)
+            next_generation = torch.argmax(distribution, dim=-1) # starting after the pad token
+
+            # hold prompt unchanged and update generated tokens
+            for i in range(bsz):
+                next_generation[i, :] = torch.cat((starting_tokens[i, :prompt_lens[i]], next_generation[i, prompt_lens[i]-1:-1]), dim=0)
+            trajectory.append(next_generation)
+            if torch.all(torch.eq(next_generation, current_generation)).item():
+                condition = True
+                print(f"Iteration steps: {itr}")
+
+        return trajectory, logits_trajectory[-1] # one right-shift offset for logits trajectory to match the corresponding trajectory entry
 
     def soft_cross_entropy(self, predicts, targets, padding_mask):
         predict_log_prob = torch.nn.functional.log_softmax(predicts, dim=-1)
@@ -504,20 +614,4 @@ class DistillTrainerCallback(TrainerCallback):
         self.sample_steps = 0
 
     def on_evaluate(self, args, state, control, **kwargs):
-        if args.local_rank == 0:
-            global eval_cnt
-            print(f"[{eval_cnt}] {self.correct_cnt}/{self.propose_cnt}")
-
-            if self.correct_cnt > 0:
-                with open("out", "a") as f:
-                    f.write(f"[{eval_cnt}] {self.correct_cnt}/{self.propose_cnt}\n")
-                wandb.log(
-                    {"generated_token": self.correct_cnt * 1.0 / self.propose_cnt})
-                wandb.log({"alpha": self.alpha * 1.0 / self.sample_steps})
-
-        eval_cnt += 1
-        self.correct_cnt = 0
-        self.propose_cnt = 0
-
-        self.alpha = 0
-        self.sample_steps = 0
+        pass

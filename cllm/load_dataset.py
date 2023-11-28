@@ -95,7 +95,7 @@ def load_dataset(data_args, training_args, tokenizer):
             data_args.dataset_config_name,
         )
 
-    prefix = data_args.source_prefix if data_args.source_prefix is not None else ""
+    prefix = data_args.source_prefix
     print(f'prefix: {prefix}')
 
     if 'with_answers' in data_args.dataset_name:

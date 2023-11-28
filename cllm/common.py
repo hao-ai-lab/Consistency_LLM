@@ -36,8 +36,19 @@ def target_sample_from_distribution(target_distribution, draft_distribution):
     distribution = distribution / distribution.sum(dim=-1, keepdim=True)
     return torch.multinomial(distribution, num_samples=1).squeeze(-1)
 
-########################### Utility ########################
+def sample_from_distribution(distribution):
+    distribution = torch.max(distribution,
+                             torch.zeros_like(distribution))
+    if (distribution.sum(dim=-1, keepdim=True) == 0).any():
+        distribution = torch.where(
+            distribution == 0, distribution + 1e-10, distribution)
+        print("[Warning] Distribution contains zero values")
+    distribution = distribution / distribution.sum(dim=-1, keepdim=True)
+    return torch.multinomial(distribution, num_samples=1).squeeze(-1)
 
+########################### Utility ########################
+def sample_method(logits, temperature):
+    return torch.softmax(logits / temperature, dim=-1)
 
 def slice_past_key_values(past_key_values, start_idx, slice_len):
     new_past = []

@@ -1,0 +1,5 @@
+[default]
+entity = lanxiang_llm
+project = consistency_llm
+base_url = https://api.wandb.ai
+

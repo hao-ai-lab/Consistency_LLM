@@ -122,7 +122,7 @@ class GSMDataset(torch.utils.data.Dataset):
 
 # SPIDER dataset
 def preprocess_function_spider(examples, tokenizer, args, train_args, prefix=""):
-    # prefix="Could you translate the following question into SQL. Please only generate SQL, don't include explanation in the answer."
+    prefix="Could you translate the following question into SQL. Please only generate SQL, don't include explanation in the answer.\nA: "
     if train_args.debug:
         inputs = examples["question"][:3]
         targets = examples["query"][:3]

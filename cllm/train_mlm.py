@@ -20,8 +20,6 @@ import math
 import pathlib
 from typing import Dict, Optional, Sequence
 
-import wandb
-
 import random
 
 import os
@@ -135,7 +133,7 @@ class DataArguments:
         },
     )
     source_prefix: Optional[str] = field(
-        default="", metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
+        default=None, metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
     )
     fast_eval: bool = field(
         default=True,
