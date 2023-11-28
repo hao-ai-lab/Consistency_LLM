@@ -8,7 +8,7 @@ conda activate cllm
 ```
 2. Clone this repository and build from source:
 ```
-git clone 
+git clone git@github.com:snyhlxde1/Consistency_LLM.git
 cd Consistency_LLM
 ```
 3. Install dependency:
@@ -53,11 +53,3 @@ bash bash_scripts/t5/onine.sh {your_datapath} {dataset_name} {sample_source} {di
 --sample_source: sampling methods. Select one from {teacher, student, mix_token, mix_request} \
 --kl_method: distillation methods. Select one from {forward, reverse, jsd} \
 ```
-
-### Datasets
-This repo currently supports distillation and evaluation on the following datasets:
-
-Models | GSM8K | Spider | Finance-Alpaca | CSN Python | PIQA | Starcode | Arena | CNN Dailymail | Xsum |
-:---: | :---: | :---: | :---: | :---: | :---: | :---: |:---: | :---: | :---: |
- LLaMA | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: |  |  |
-T5 | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: |  |  |  | :heavy_check_mark: | :heavy_check_mark: |
