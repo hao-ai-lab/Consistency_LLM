@@ -349,12 +349,14 @@ class DistillTrainer(Trainer):
         for i in range(len(jacobian_trajectory)-1, -1, -2):
             for j in range(bsz):
                 prompt_len = len(attention_mask[j])
-                if len(torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id))==0:
-                    # no EOS, continue
+                eos_positions = torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id)[0]
+                if len(eos_positions)==0:
+                    # no EOS, continue to the next item in the batch
                     continue
                 # otherwise, set tokens coming after EOS as pad 
                 trajectory_copy = jacobian_trajectory[i].clone().detach()
-                trajectory_copy[j, int(torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id)[0][0].item())+1:] = self.tokenizer.pad_token_id
+                eos_pos = eos_positions[0]
+                trajectory_copy[j, int(eos_pos)+1:] = self.tokenizer.pad_token_id
                 jacobian_trajectory[i] = trajectory_copy
             
             # get attention mask and get logits
@@ -362,14 +364,14 @@ class DistillTrainer(Trainer):
             logits_i = self.get_logits(model, jacobian_trajectory[i].clone(), jacobi_attention_mask)
 
             # train only on generated content
-            output_mask = jacobian_trajectory[i][..., 1:] == self.tokenizer.pad_token_id #it is used to mask pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
+            output_mask = jacobian_trajectory[i] == self.tokenizer.pad_token_id #it is used to mask pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
             # mask out prompt
             output_mask[torch.where(attention_mask) == 1] = True
 
             loss = self.soft_cross_entropy(
                 logits_i[..., :-1, :].float() / student_temperature,
                 teacher_logits[..., :-1, :].float() / teacher_temperature,
-                output_mask[..., 1:, :]
+                output_mask[..., 1:]
             )
             loss.backward()
             all_losses.append(loss)

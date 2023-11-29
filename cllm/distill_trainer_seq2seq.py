@@ -303,14 +303,15 @@ class Seq2SeqDistillTrainer(Seq2SeqTrainer):
             print(self.tokenizer.decode(jacobian_trajectory[-1][0], skip_special_tokens=True))
         
         for i in range(len(jacobian_trajectory)-1, -1, -2):
+            index = random.choices(range(len(jacobian_trajectory)-1, -1, -2), k=1)
             logits_i = self.get_logits(model, input_ids, attention_mask, jacobian_trajectory[i].clone())
             # with torch.no_grad():
             #     logits_ii = self.get_logits(model, input_ids, attention_mask, jacobian_trajectory[i])  
-            output_mask = jacobian_trajectory[i][..., 1:] == self.tokenizer.pad_token_id #it is used to mask pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
+            output_mask = jacobian_trajectory[i] == self.tokenizer.pad_token_id #it is used to mask pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
             loss = self.soft_cross_entropy(
                 logits_i[..., :-1, :].float() / student_temperature,
                 teacher_logits[..., :-1, :].float() / teacher_temperature,
-                output_mask[..., 1:, :]
+                output_mask[..., 1:]
             )
             loss.backward()
             all_losses.append(loss)

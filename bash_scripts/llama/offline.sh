@@ -16,7 +16,7 @@ torchrun --nproc_per_node=4 cllm/train.py \
     --bf16 True \
     --output_dir $datapath/spider_${sample}_${kl} \
     --num_train_epochs 2 \
-    --per_device_train_batch_size 16 \
+    --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 4 \
     --evaluation_strategy "epoch" \
