@@ -324,61 +324,74 @@ class DistillTrainer(Trainer):
         return loss.detach()
 
     def consistency_training_step(self, model, inputs):
-        debug = False
-        max_new_tokens = 16
-        #max_seq_len = 128
+
+        max_new_tokens = 15
+        max_new_seq_len = 128
         student_temperature = 1.0
-        teacher_temperature = 1.0
+        teacher_temperature = 1.0        
 
-        all_losses = []        
-
-        bsz = inputs["input_ids"].shape[0]
-        input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
-
-        with torch.no_grad():
-            jacobian_trajectory, teacher_logits = self.get_jacobian_trajectory(self.teacher_model, self.tokenizer, input_ids, attention_mask, max_new_tokens)
-        if debug:
-            print(self.tokenizer.decode(input_ids[0]))
-            print(self.tokenizer.decode(jacobian_trajectory[-1][0]))
-
-        jacobi_attention_mask = torch.full_like(jacobian_trajectory[0], 1).to(input_ids.device)
-
-        #eos_reached = torch.tensor([False] * bsz, device="cuda")
-
-        for i in range(len(jacobian_trajectory)-2, -1, -1):
-            for j in range(bsz):
-                prompt_len = len(attention_mask[j])
-                eos_positions = torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id)[0]
-                if len(eos_positions)==0:
-                    # no EOS, continue to the next item in the batch
-                    continue
-                # otherwise, set tokens coming after EOS as pad 
-                trajectory_copy = jacobian_trajectory[i].clone().detach()
-                eos_pos = eos_positions[0]
-                trajectory_copy[j, int(eos_pos)+1:] = self.tokenizer.pad_token_id
-                jacobian_trajectory[i] = trajectory_copy
+        itr = 0
+        ### the following is use jacobian generate per max_new_tokens, max_seq_len is initialized
+        while True:
+            all_losses = []
+            print(itr)
+            if itr == 0:
+                input_ids = inputs["input_ids"]
+                input_masks = inputs["attention_mask"]
+            else:
+                input_masks = torch.ones_like(input_ids).to(input_ids.device)
             
-            # get attention mask and get logits
-            jacobi_attention_mask = jacobian_trajectory[i] != self.tokenizer.pad_token_id
-            logits_i = self.get_logits(model, jacobian_trajectory[i].clone(), jacobi_attention_mask)
+            bsz = input_ids.shape[0]
+            eos_reached = torch.tensor([False] * bsz, device="cuda")
+            jacobian_trajectory, teacher_logits = self.get_jacobian_trajectory(self.teacher_model, self.tokenizer, input_ids, input_masks, max_new_tokens)
 
-            # train only on generated content
-            output_mask = jacobian_trajectory[i] == self.tokenizer.pad_token_id #it is used to mask pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
-            # mask out prompt
-            output_mask[torch.where(attention_mask) == 1] = True
+            ### tokens generated after <eos> are set to <pad>
+            for i in range(len(jacobian_trajectory)):
+                for j in range(bsz):
+                    prompt_len = torch.sum(input_masks)
+                    eos_positions = torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id)[0]
+                    if len(eos_positions)==0:
+                        # no EOS, continue to the next item in the batch
+                        continue
+                    # otherwise, set tokens coming after EOS as pad 
+                    eos_reached[j] = True
+                    trajectory_copy = jacobian_trajectory[i].clone().detach()
+                    eos_pos = eos_positions[0]
+                    trajectory_copy[j, int(eos_pos)+1:] = self.tokenizer.pad_token_id
+                    jacobian_trajectory[i] = trajectory_copy
 
-            loss = self.soft_cross_entropy(
-                logits_i[..., :-1, :].float() / student_temperature,
-                teacher_logits[..., :-1, :].float() / teacher_temperature,
-                output_mask[..., 1:]
-            )
-            loss.backward()
-            all_losses.append(loss)
+            ########## use cosistency loss to train ##########
+            attention_mask = torch.full_like(jacobian_trajectory[0], 1).to(input_ids.device)
+            for i in range(len(jacobian_trajectory)-2, -1, -1):
+                
+                # get attention mask and get logits
+                attention_mask = jacobian_trajectory[i] != self.tokenizer.pad_token_id
+                logits_i = self.get_logits(model, jacobian_trajectory[i].clone(), attention_mask)
+                # print(f'logits_{i}: {logits_i}')
 
-        print(f'max loss: {max(all_losses)}')
-        print(f'min loss: {min(all_losses)}')
-        print(f'avg loss: {sum(all_losses)/len(all_losses)}')
+                # ignore pad_token and prompt_token because we do not intend to calculate the cross entrophy loss w.r.t pad & prompt
+                output_mask = jacobian_trajectory[i][..., 1:] == self.tokenizer.pad_token_id 
+                output_mask[torch.where(input_masks) == 1] = True       
+
+                loss = self.soft_cross_entropy(
+                    logits_i[..., :-1, :].float() / student_temperature, # logits generated by the last token is dropped
+                    teacher_logits[..., :-1, :].float() / teacher_temperature,
+                    output_mask
+                )
+                loss.backward()
+                all_losses.append(loss)
+            
+            ### see if next max_new_tokens should be generated & if True, update weights and prepare new input_ids
+            print(f'max loss: {max(all_losses).detach()}')
+            print(f'min loss: {min(all_losses).detach()}')
+            print(f'avg loss: {sum(all_losses)/len(all_losses)}')
+
+            itr+=1      
+            if all(eos_reached) or itr*max_new_tokens >= max_new_seq_len:
+                break
+            self.optimizer.step()
+            input_ids = jacobian_trajectory[-1][torch.where(eos_reached==False)[0].tolist(), ...] # delete samples with <eos> generated
+
         return max(all_losses).detach()
     
     def log(self, logs):
@@ -461,13 +474,10 @@ class DistillTrainer(Trainer):
         jacobi_attention_mask = torch.full_like(next_generation, 1).to(starting_tokens.device)
         trajectory.append(starting_tokens)
         while condition == False:
-            if itr % 10 == 0:
-                print(f'iteration: {itr}')
-            itr+=1
             current_generation = next_generation
             logits = self.get_logits(model, current_generation, jacobi_attention_mask)
             logits_trajectory.append(logits)
-            # TODO: optimize sampling performance
+            # sampling
             tau = 0.001  # argmax
             distribution = torch.softmax(logits / tau, dim=-1)
             next_generation = torch.argmax(distribution, dim=-1) # starting after the pad token
@@ -479,6 +489,10 @@ class DistillTrainer(Trainer):
             if torch.all(torch.eq(next_generation, current_generation)).item():
                 condition = True
                 print(f"Iteration steps: {itr}")
+            
+            itr+=1
+            if itr % 10 == 0:
+                print(f'iteration: {itr}')
 
         return trajectory[:-1], logits_trajectory[-2] # one right-shift offset for logits trajectory to match the corresponding trajectory entry
 
