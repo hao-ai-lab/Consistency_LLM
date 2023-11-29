@@ -3,22 +3,22 @@ dataset_name=$2
 sample=$3
 kl=$4
 
-export CUDA_VISIBLE_DEVICES=1,2,3,4
+export CUDA_VISIBLE_DEVICES=0,5
 export WANDB_PROJECT=consistency_llm
 
 # data/raw_data/spider_train_with_answer.json
 
-torchrun --nproc_per_node=4 cllm/train.py \
-    --student_model_path models/llama-160m \
+torchrun --nproc_per_node=2 --master_port=51000 cllm/train.py \
+    --student_model_path models/llama-160m-spider-teacher-forward \
     --teacher_model_path models/vicuna-7b-v1.3 \
     --data_path ${dataset_name} \
     --max_propose_num 5 \
     --bf16 True \
     --output_dir $datapath/spider_${sample}_${kl} \
     --num_train_epochs 2 \
-    --per_device_train_batch_size 4 \
+    --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 4 \
     --evaluation_strategy "epoch" \
     --save_strategy "steps" \
     --save_steps 30 \

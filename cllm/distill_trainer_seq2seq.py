@@ -302,8 +302,7 @@ class Seq2SeqDistillTrainer(Seq2SeqTrainer):
             print(self.tokenizer.decode(input_ids[0], skip_special_tokens=True))
             print(self.tokenizer.decode(jacobian_trajectory[-1][0], skip_special_tokens=True))
         
-        for i in range(len(jacobian_trajectory)-1, -1, -2):
-            index = random.choices(range(len(jacobian_trajectory)-1, -1, -2), k=1)
+        for i in range(len(jacobian_trajectory)-2, -1, -1):
             logits_i = self.get_logits(model, input_ids, attention_mask, jacobian_trajectory[i].clone())
             # with torch.no_grad():
             #     logits_ii = self.get_logits(model, input_ids, attention_mask, jacobian_trajectory[i])  
@@ -393,7 +392,7 @@ class Seq2SeqDistillTrainer(Seq2SeqTrainer):
                 condition = True
                 print(f"Iteration steps: {itr}")
 
-        return trajectory, logits_trajectory[-1] # one right-shift offset for logits trajectory to match the corresponding trajectory entry
+        return trajectory[:-1], logits_trajectory[-2] # one right-shift offset for logits trajectory to match the corresponding trajectory entry
 
     def soft_cross_entropy(self, predicts, targets, padding_mask):
         predict_log_prob = torch.nn.functional.log_softmax(predicts, dim=-1)

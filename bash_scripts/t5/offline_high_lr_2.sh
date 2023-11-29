@@ -3,7 +3,7 @@ dataset_name=$2
 sample_source=$3
 kl=$4
 
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=7
 export WANDB_PROJECT=consistency_llm
 
 python cllm/train_mlm.py \
@@ -25,7 +25,7 @@ python cllm/train_mlm.py \
     --save_strategy "steps" \
     --save_steps 200 \
     --save_total_limit 5 \
-    --learning_rate 1e-4 \
+    --learning_rate 2e-4 \
     --weight_decay 0. \
     --lr_scheduler_type "cosine" \
     --warmup_ratio 0.03 \
@@ -34,5 +34,5 @@ python cllm/train_mlm.py \
     --train_target_max_length 512 \
     --val_target_max_length 512 \
     --test_target_max_length 512 \
-    --run_name t5_${dataset_name}_consistency_distill_${sample_source}_${kl}_1e-4_random \
-    --output_dir $datapath/t5_${dataset_name}_consistency_${sample_source}_${kl}_1e-4_random
+    --run_name t5_${dataset_name}_consistency_distill_${sample_source}_${kl}_2e-4 \
+    --output_dir $datapath/t5_${dataset_name}_consistency_${sample_source}_${kl}_2e-4

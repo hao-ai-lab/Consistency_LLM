@@ -325,7 +325,7 @@ class DistillTrainer(Trainer):
 
     def consistency_training_step(self, model, inputs):
         debug = False
-        max_new_tokens = 32
+        max_new_tokens = 16
         #max_seq_len = 128
         student_temperature = 1.0
         teacher_temperature = 1.0
@@ -339,14 +339,14 @@ class DistillTrainer(Trainer):
         with torch.no_grad():
             jacobian_trajectory, teacher_logits = self.get_jacobian_trajectory(self.teacher_model, self.tokenizer, input_ids, attention_mask, max_new_tokens)
         if debug:
-            print(self.tokenizer.decode(input_ids[0], skip_special_tokens=True))
-            print(self.tokenizer.decode(jacobian_trajectory[-1][0], skip_special_tokens=True))
+            print(self.tokenizer.decode(input_ids[0]))
+            print(self.tokenizer.decode(jacobian_trajectory[-1][0]))
 
         jacobi_attention_mask = torch.full_like(jacobian_trajectory[0], 1).to(input_ids.device)
 
         #eos_reached = torch.tensor([False] * bsz, device="cuda")
 
-        for i in range(len(jacobian_trajectory)-1, -1, -2):
+        for i in range(len(jacobian_trajectory)-2, -1, -1):
             for j in range(bsz):
                 prompt_len = len(attention_mask[j])
                 eos_positions = torch.where(jacobian_trajectory[i][j, :prompt_len+i]==self.tokenizer.eos_token_id)[0]
@@ -480,7 +480,7 @@ class DistillTrainer(Trainer):
                 condition = True
                 print(f"Iteration steps: {itr}")
 
-        return trajectory, logits_trajectory[-1] # one right-shift offset for logits trajectory to match the corresponding trajectory entry
+        return trajectory[:-1], logits_trajectory[-2] # one right-shift offset for logits trajectory to match the corresponding trajectory entry
 
     def soft_cross_entropy(self, predicts, targets, padding_mask):
         predict_log_prob = torch.nn.functional.log_softmax(predicts, dim=-1)
