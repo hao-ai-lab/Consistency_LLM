@@ -106,12 +106,13 @@ class DistillTrainer(Trainer):
                 jacobian_trajectory_[i] = trajectory_copy   
             
         ### compute AutoRegression loss ###
+        print(f'Total sequence length: {jacobian_trajectory[0].shape}')
         attention_mask = torch.full_like(jacobian_trajectory[0], 1).to(jacobian_trajectory[0].device)
         attention_mask = jacobian_trajectory_[-1] != self.tokenizer.pad_token_id
         logits_last =  self.get_logits(model, jacobian_trajectory_[-1].clone().detach(), attention_mask)
         print('logits computed!')
 
-        # ignore pad_token and prompt_token because we do not intend to calculate the cross entrophy loss w.r.t pad & prompt
+        # ignore pad_token because we do not intend to calculate the cross entrophy loss w.r.t pad
         output_mask = jacobian_trajectory_[-1][..., 1:] == self.tokenizer.pad_token_id 
 
         print('computing loss...')
@@ -120,12 +121,13 @@ class DistillTrainer(Trainer):
             teacher_logits.to(logits_last.device)[..., :-1, :].float() / teacher_temperature,
             output_mask.to(logits_last.device)
         )
+        loss_ar*=50
         print(f'loss ar: {loss_ar} computed! performing backward pass...')
         with self.accelerator.accumulate(model):
             self.accelerator.backward(loss_ar)
         print('backward pass done!')
 
-        ### compute Consistency global loss ###
+        ### compute Consistency loss (global) ###
         # random select one point from trajectory (all right tokens point is excepted)
         i = random.choice(range(len(jacobian_trajectory_))[:-1])
 
@@ -159,13 +161,20 @@ class DistillTrainer(Trainer):
         # total loss = ar_loss + consistency_global_loss
         loss = loss_ar.detach()+loss_global.detach()
 
-        return loss
+        # return loss
+        return {'loss': loss, 'loss_ar': loss_ar.detach(), 'loss_global': loss_global.detach()}
     
 
     def log(self, logs):
         # Remove the 'loss' entry with value 0 before calling the superclass method
         if 'loss' in logs and logs['loss'] == -1:
             del logs['loss']
+
+        # if 'loss_ar' in logs:
+        #     self.logger.experiment.add_scalar('Loss/AR', logs['loss_ar'], self.global_step)
+            
+        # if 'loss_global' in logs:
+        #     self.logger.experiment.add_scalar('Loss/Global', logs['loss_global'], self.global_step)
 
         # Call the original `log` method of the `Trainer` class
         super().log(logs)
