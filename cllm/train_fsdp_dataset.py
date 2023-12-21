@@ -178,8 +178,6 @@ def preprocess_distill_data(
     model: str
 ) -> Dict:
     
-    assert "vicuna" in model.lower()
-
     jacobian_trajectory_ids = []
     for answer_ids in answer_trajectory_ids:
         jacobian_prompt_ids = tokenizer(jacobian_prompt, return_tensors="pt")["input_ids"][0]
@@ -239,7 +237,15 @@ def make_jacobian_data_module(
     rank0_print("Loading data...")
 
     train_json = json.load(open(data_args.data_path, "r"))
-    train_dataset = dataset_cls(train_json,
+    train_json_part2 = json.load(open('/liymai24/sjtu/siqi/Consistency_LLM-master/data/raw_data/spider_jacobian16_augTrue_max_seq_len_256_part2.json', "r"))
+    truncated_train_json = []
+    for data in train_json:
+        if tokenizer(data['jacobian_prompt'],return_tensors="pt")['input_ids'].shape[1]<500:
+            truncated_train_json.append(data)
+    for data in train_json_part2:
+        if tokenizer(data['jacobian_prompt'],return_tensors="pt")['input_ids'].shape[1]<500:
+            truncated_train_json.append(data)
+    train_dataset = dataset_cls(truncated_train_json,
                                 tokenizer=tokenizer,
                                 model=model,
                                 local_rank=local_rank)
@@ -326,21 +332,8 @@ def train():
         padding_side="right",
         use_fast=False,
     )
-    tokenizer.pad_token = tokenizer.unk_token
-
-    # # ------teacher model inference fsdp------
-    # transformer_cls_to_wrap = set()
-    # transformer_cls = get_module_class_from_name(model, "LlamaDecoderLayer")
-    # transformer_cls_to_wrap.add(transformer_cls)
-    # auto_wrap_policy = functools.partial(
-    #     transformer_auto_wrap_policy,
-    #     # Transformer layer class to wrap
-    #     transformer_layer_cls=transformer_cls_to_wrap,
-    # )
-    # teacher_model = FSDP(
-    #     teacher_model,
-    #     auto_wrap_policy=auto_wrap_policy,
-    # )
+    if 'vicuna' in model_args.student_model_path:
+        tokenizer.pad_token = tokenizer.unk_token
 
     # Load data
     data_module = make_jacobian_data_module(tokenizer=tokenizer,
