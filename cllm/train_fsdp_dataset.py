@@ -171,9 +171,31 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
         del state_dict
         trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
 
+
+@dataclass
+class DataCollatorForSupervisedDataset(object):
+    """Collate examples for consistency training."""
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        input_ids = [torch.tensor(x) for x in input_ids]
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+        )
+        labels = [torch.tensor(x) for x in labels]
+        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
+        
+        return dict(
+            input_ids=input_ids,
+            labels=labels,
+            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+        )
+
 def preprocess_distill_data(
     jacobian_prompt,
     answer_trajectory_ids,
+    labels_ids,
     tokenizer: transformers.PreTrainedTokenizer,
     model: str
 ) -> Dict:
@@ -189,6 +211,7 @@ def preprocess_distill_data(
     return dict(
         jacobian_trajectory=jacobian_trajectory_ids,
         attention_mask=jacobian_trajectory_ids[0].ne(tokenizer.pad_token_id),
+        labels_ids=labels_ids
     ) 
     
 class JacobianDataset(Dataset):
@@ -218,6 +241,7 @@ class JacobianDataset(Dataset):
 
         ret = preprocess_distill_data([self.raw_data[i]["jacobian_prompt"]],
                          self.raw_data[i]["answer_trajectory_ids"],
+                         self.raw_data[i]["labels_ids"],
                          self.tokenizer,
                          self.model)
         self.cached_data_dict[i] = ret
@@ -231,19 +255,19 @@ def make_jacobian_data_module(
     model: str,
     local_rank: int,
 ) -> Dict:
-    """Make dataset and collator for supervised fine-tuning."""
+    """Make dataset and collator for consistency training."""
     assert data_args.lazy_preprocess, "only support lazy process"
     dataset_cls = JacobianDataset
     rank0_print("Loading data...")
 
-    train_json = json.load(open(data_args.data_path, "r"))
-    train_json_part2 = json.load(open('/liymai24/sjtu/siqi/Consistency_LLM-master/data/raw_data/spider_jacobian16_augTrue_max_seq_len_256_part2.json', "r"))
+    train_json_part1 = json.load(open('/liymai24/sjtu/siqi/wizard_dataset/WizardLM_evol_instruct_V2_143k_jacobian16_augTrue_labels_True_max_seq_len_256.json', "r"))
+    train_json_part2 = json.load(open('/liymai24/sjtu/siqi/wizard_dataset/WizardLM_evol_instruct_V2_143k_jacobian16_augTrue_labels_True_max_seq_len_256_part2.json', "r"))
     truncated_train_json = []
-    for data in train_json:
-        if tokenizer(data['jacobian_prompt'],return_tensors="pt")['input_ids'].shape[1]<500:
+    for data in train_json_part1:
+        if tokenizer(data['jacobian_prompt'],return_tensors="pt")['input_ids'].shape[1]<500 :
             truncated_train_json.append(data)
     for data in train_json_part2:
-        if tokenizer(data['jacobian_prompt'],return_tensors="pt")['input_ids'].shape[1]<500:
+        if tokenizer(data['jacobian_prompt'],return_tensors="pt")['input_ids'].shape[1]<500 :
             truncated_train_json.append(data)
     train_dataset = dataset_cls(truncated_train_json,
                                 tokenizer=tokenizer,
