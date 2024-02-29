@@ -46,15 +46,15 @@ pip install -r requirements.txt
 python -m medusa.inference.cli --model FasterDecoding/medusa-vicuna-33b-v1.3`
 ```
 ### Training
-#### Collect Jacobi trajectory
+1. Collect Jacobi trajectory
 - Method 1: Directly download Jacobi trajectory in hugging face to `./data/collected_jacobi_trajectory/`.
-- Method 2(Generate trajectory suitable to your own target model and dataset): Download raw dataset ([ShareGPT](https://huggingface.co/datasets/cllm/sharegpt_20230521_2k_clean_lang_split_identity_gpt4), [Spider](https://huggingface.co/datasets/cllm/spider)) in `./data/raw_data`. Then run the `generate_trajectory_{dataset_name}.py` and the training dataset for a CLLM will be saved in  `./data/collected_jacobi_trajectory/`. For example,
+- Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset ([ShareGPT](https://huggingface.co/datasets/cllm/sharegpt_20230521_2k_clean_lang_split_identity_gpt4), [Spider](https://huggingface.co/datasets/cllm/spider)) in `./data/raw_data`. Then run the `generate_trajectory_{dataset_name}.py` and the training dataset for a CLLM will be saved in  `./data/collected_jacobi_trajectory/`. For example,
 ```
 # for gsm8k dataset generation, max_new_tokens corresponds to the size of n_token_sequence
 cd data
 CUDA_VISIBLE_DEVICES=0 python generate_trajectory_gsm8k.py --model path_to_target_model --filename ./raw_data/gsm8k_train.jsonl --use_aug --use_labels --max_new_tokens 16 --max_new_seq_len 512
 ```
-#### Refine target model to a CLLM
+2. Refine target model to a CLLM
 Please adjust `train_cllm.sh` to match your local file path.
 ```
 cd cllm
