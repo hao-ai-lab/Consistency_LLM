@@ -1,6 +1,16 @@
-# Consistency_LLM
+# Consistency Large Language Models: A Family of Efficient Parallel Decoders
+## Contents
+- [Introduction](#introduction)
+- [Installation](#installation)
+- [Model Weights](#model-weights)
+- [Usage](#usage)
+  - [Inference](#inference)
+  - [Training](#training)
+- [Citation](#citation)
+- [Acknowledgements](#acknowledgements)
+## Introduction
 
-## Install
+## Installation
 1. Environment setup:
 ```
 conda create -n cllm python=3.9
@@ -15,41 +25,52 @@ cd Consistency_LLM
 ```
 pip install -r requirements.txt
 ```
-
+## Model Weights
+#### Target Model
+| Size | Dataset |  Hugging Face Repo                             |
+| ---- | -------- | --------------------------------------------- | 
+| 7B   | ShareGPT |  [cllm/consistency-llm-sharegpt48k](https://huggingface.co/cllm/consistency-llm-sharegpt48k)   |
+| 7B  | GSM8K | [FasterDecoding/medusa-vicuna-13b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-13b-v1.3) |
+| 7B  | Spider | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
+| 7B  | Code-Search-Net Python | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
+#### CLLM
+| Size | Dataset |  Hugging Face Repo                             |
+| ---- | -------- | --------------------------------------------- | 
+| 7B   | ShareGPT |  [cllm/consistency-llm-sharegpt48k](https://huggingface.co/cllm/consistency-llm-sharegpt48k)   |
+| 7B  | GSM8K | [FasterDecoding/medusa-vicuna-13b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-13b-v1.3) |
+| 7B  | Spider | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
+| 7B  | Code-Search-Net Python | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
 ## Usage
-### Prepare data
+### Inference 
 ```
+python -m medusa.inference.cli --model FasterDecoding/medusa-vicuna-33b-v1.3`
+```
+### Training
+#### Collect Jacobi trajectory
+- Method 1: Directly download Jacobi trajectory in hugging face to `./data/collected_jacobi_trajectory/`.
+- Method 2(Generate trajectory suitable to your own target model and dataset): Download raw dataset ([ShareGPT](https://huggingface.co/datasets/cllm/sharegpt_20230521_2k_clean_lang_split_identity_gpt4), [Spider](https://huggingface.co/datasets/cllm/spider)) in `./data/raw_data`. Then run the `generate_trajectory_{dataset_name}.py` and the training dataset for a CLLM will be saved in  `./data/collected_jacobi_trajectory/`. For example,
+```
+# for gsm8k dataset generation, max_new_tokens corresponds to the size of n_token_sequence
 cd data
-mkdir raw_data
-python clean_{dataset}.py
+CUDA_VISIBLE_DEVICES=0 python generate_trajectory_gsm8k.py --model path_to_target_model --filename ./raw_data/gsm8k_train.jsonl --use_aug --use_labels --max_new_tokens 16 --max_new_seq_len 512
 ```
-dataset can take the value of `spider`, `finance`, `code_search`, `gsm8k`.
-
-### LLaMA
-1. Customized offline distillation:
+#### Refine target model to a CLLM
+Please adjust `train_cllm.sh` to match your local file path.
 ```
-bash bash_scripts/{dataset_name}/offline.sh {your_datapath} {sample_source} {distillation_method}
+cd cllm
+bash train_cllm.sh
 ```
-3. Customized online distillation:
+#### Evaluation
+The throughput speed and generation quality can be evaluated in `eval` folder. Take GSM8K dataset for example, 
 ```
-bash bash_scripts/{dataset_name}/offline.sh {your_datapath} {sample_source} {distillation_method}
+# for gsm8k dataset evaluation
+cd eval
+cd gsm8k
+# compare throughput speed of CLLM using AR decoding and Jacobi decoding
+CUDA_VISIBLE_DEVICES=0 python speedup.py --test_model path_to_cllm --max_new_tokens 16 --filename ./test.jsonl
+# test accuracy in gsm8k
+CUDA_VISIBLE_DEVICES=0 acc.py --model_dir path_to_cllm --max_new_tokens_for_consistency 16 --temperature 0.0 --top_p 1.0 \
+--output_file_name 'cllm_generated_gsm8k.jsonl' --dev_set "gsm8k" --prompt_type math-single --max_tokens 1024 --use_consistency_decoding
 ```
-
-### T5
-1. Customized offline distillation:
-```
-bash bash_scripts/t5/offline.sh {your_datapath} {dataset_name} {sample_source} {distillation_method}
-```
-2. Customized online distillation:
-```
-bash bash_scripts/t5/onine.sh {your_datapath} {dataset_name} {sample_source} {distillation_method}
-```
-
-### Command options
-```
---student_model_path: path to the student (small) model
---teacher_model_path: path to the teacher (big) model
---mode: distillation mode. Select one from {online, offline} \
---sample_source: sampling methods. Select one from {teacher, student, mix_token, mix_request} \
---kl_method: distillation methods. Select one from {forward, reverse, jsd} \
-```
+## Citation
+## Acknowledgements
