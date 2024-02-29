@@ -4,7 +4,7 @@ export WANDB_PROJECT=consistency_llm
 torchrun --nnodes=1 --nproc_per_node=8 --rdzv_id=101 --rdzv_endpoint='localhost:5667' \
     --master_port 10005 \
     train_cllm_global.py \
-    --target_model_path your_local_model_path \
+    --target_model_path your_target_model_path \
     --data_path ../data/collected_jacobi_trajectory/your_jacobi_trajectory_name \
     --output_dir your_local_path_to_save_cllm \
     --max_new_tokens n_token_seq_size \
