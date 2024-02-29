@@ -1,4 +1,6 @@
 # Consistency Large Language Models: A Family of Efficient Parallel Decoders
+## Introduction
+
 ## Contents
 - [Introduction](#introduction)
 - [Installation](#installation)
@@ -6,10 +8,9 @@
 - [Usage](#usage)
   - [Inference](#inference)
   - [Training](#training)
+  - [Evaluation](#evaluation)
 - [Citation](#citation)
 - [Acknowledgements](#acknowledgements)
-## Introduction
-
 ## Installation
 1. Environment setup:
 ```
@@ -54,13 +55,13 @@ python -m medusa.inference.cli --model FasterDecoding/medusa-vicuna-33b-v1.3`
 cd data
 CUDA_VISIBLE_DEVICES=0 python generate_trajectory_gsm8k.py --model path_to_target_model --filename ./raw_data/gsm8k_train.jsonl --use_aug --use_labels --max_new_tokens 16 --max_new_seq_len 512
 ```
-2. Refine target model to a CLLM
+2. Refine the target model to a CLLM
 Please adjust `train_cllm.sh` to match your local file path.
 ```
 cd cllm
 bash train_cllm.sh
 ```
-#### Evaluation
+### Evaluation
 The throughput speed and generation quality can be evaluated in `eval` folder. Take GSM8K dataset for example, 
 ```
 # for gsm8k dataset evaluation
