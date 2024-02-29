@@ -1,5 +1,16 @@
 # Consistency Large Language Models: A Family of Efficient Parallel Decoders
+<p align="center">
+| <a href="https://sites.google.com/view/
+medusa-llm"><b>Paper</b></a> | <a href="https://arxiv.org/abs/2401.10774"><b>Blog</b></a> |
+</p>
+
 ## Introduction
+Consistency Large Language Models (CLLMs) is a family of efficient parallel decoders refined from target LLMs.
+Show demo here.
+Compared with existing techniques, CLLM achieves fast parallel decoding without any:
+- Draft models.
+- Architecture adjustment.
+- 
 
 ## Contents
 - [Introduction](#introduction)
@@ -30,10 +41,10 @@ pip install -r requirements.txt
 #### Target Model
 | Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
-| 7B   | ShareGPT |  [cllm/consistency-llm-sharegpt48k](https://huggingface.co/cllm/consistency-llm-sharegpt48k)   |
-| 7B  | GSM8K | [FasterDecoding/medusa-vicuna-13b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-13b-v1.3) |
-| 7B  | Spider | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
-| 7B  | Code-Search-Net Python | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
+| 7B   | ShareGPT |  [cllm/vicuna-7b-sharegpt-gpt4-48k](https://huggingface.co/cllm/consistency-llm-sharegpt48k](https://huggingface.co/cllm/vicuna-7b-sharegpt-gpt4-48k)   |
+| 7B  | GSM8K | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
+| 7B  | Spider | [cllm/deepseek-7b-instruct-spider](https://huggingface.co/cllm/deepseek-7b-instruct-spider) |
+| 7B  | Code-Search-Net Python | [cllm/deepseekcoder_6.7b_codesearch_net_python_epoch_3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/cllm/deepseekcoder_6.7b_codesearch_net_python_epoch_3) |
 #### CLLM
 | Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
