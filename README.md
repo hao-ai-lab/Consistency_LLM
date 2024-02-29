@@ -44,7 +44,7 @@ pip install -r requirements.txt
 | 7B   | ShareGPT |  [cllm/vicuna-7b-sharegpt-gpt4-48k](https://huggingface.co/cllm/consistency-llm-sharegpt48k](https://huggingface.co/cllm/vicuna-7b-sharegpt-gpt4-48k)   |
 | 7B  | GSM8K | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
 | 7B  | Spider | [cllm/deepseek-7b-instruct-spider](https://huggingface.co/cllm/deepseek-7b-instruct-spider) |
-| 7B  | Code-Search-Net Python | [cllm/deepseekcoder_6.7b_codesearch_net_python_epoch_3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/cllm/deepseekcoder_6.7b_codesearch_net_python_epoch_3) |
+| 7B  | Code-Search-Net Python | [cllm/deepseekcoder_6.7b_codesearch_net_python_epoch_3](https://huggingface.co/cllm/deepseekcoder_6.7b_codesearch_net_python_epoch_3) |
 #### CLLM
 | Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
