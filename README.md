@@ -8,7 +8,7 @@ medusa-llm"><b>Paper</b></a> | <a href="https://arxiv.org/abs/2401.10774"><b>Blo
 Consistency Large Language Models (CLLMs) is a family of efficient parallel decoders refined from target LLMs.
 Show demo here.
 
-Compared with existing acceleration techniques, CLLM achieves fast parallel decoding without any:
+Compared with existing acceleration techniques, CLLMs achieve fast parallel decoding without any:
 - Draft models
 - Additional architectural components
 
