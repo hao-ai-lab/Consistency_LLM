@@ -7,10 +7,17 @@ medusa-llm"><b>Paper</b></a> | <a href="https://arxiv.org/abs/2401.10774"><b>Blo
 ## Introduction
 Consistency Large Language Models (CLLMs) is a family of efficient parallel decoders refined from target LLMs.
 Show demo here.
-Compared with existing techniques, CLLM achieves fast parallel decoding without any:
-- Draft models.
-- Architecture adjustment.
-- 
+
+Compared with existing acceleration techniques, CLLM achieves fast parallel decoding without any:
+- Draft models
+- Additional architectural components
+
+This implies numerous advantages of CLLMs:
+- CLLMs eliminate the complexity of training 'good' draft models and managing two different models in a single system.
+- CLLMs share the same architecture with target LLMs which simplifies training and eliminates the need to design additional architecture for specific LLMs.
+- CLLMs can be integrated seamlessly with other techniques for efficient LLM inference (e.g. Lookahead Decoding) and achieve greater speedup.
+
+Empirical results have shown the effectiveness of CLLMs.
 
 ## Contents
 - [Introduction](#introduction)
