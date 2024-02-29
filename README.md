@@ -18,6 +18,11 @@ This implies numerous advantages of CLLMs:
 - CLLMs can be integrated seamlessly with other techniques for efficient LLM inference (e.g. Lookahead Decoding) and achieve greater speedup.
 
 Empirical results have shown the effectiveness of CLLMs.
+<p align="center">
+  <picture>
+  <img src="cllm_speedup.png" width="45%">
+  </picture>
+</p>
 
 ## Contents
 - [Introduction](#introduction)
