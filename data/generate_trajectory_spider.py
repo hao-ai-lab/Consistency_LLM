@@ -286,6 +286,8 @@ def main(database_path, model, tokenizer, max_new_tokens, max_new_seq_len, use_a
     cleaned_data = jacobian_generated_data_postprocessed(new_data, model_path)
     new_file_name = "cleaned_" + f"spider_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
     new_file_path = os.path.join(save_path, new_file_name)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
     with open(new_file_path, 'w') as f_merged:
         json.dump(cleaned_data, f_merged)
     
