@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 
 class CllmTrainer(Trainer):
-    def __init__(self, teacher_model, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         args = kwargs["args"]
         self.train_step_cnt = 0
