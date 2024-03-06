@@ -15,6 +15,23 @@
   </a>
 </p>
 
+##
+
+Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\times$ to $3.4\times$ improvements in generation speed on a vriety of tasks. 
+<p align="center">
+  <picture>
+  <img src="assets/img/cllm_speedup.png" width="45%">
+  </picture>
+</p>
+
+A demo of using CLLM to achieve significant improvment ($\sim3x$) in generation speed to solve a basic math problem is shown below:
+
+<p align="center">
+  <picture>
+  <img src="assets/img/baseline_vs_cllm_gsm8k_best_acc_demo.gif" width="90%">
+  </picture>
+</p>
+
 ## Contents
 - [Introduction](#introduction)
 - [Installation](#installation)
@@ -28,7 +45,6 @@
 
 ## Introduction
 Consistency Large Language Models (CLLMs) is a family of efficient parallel decoders refined from target LLMs.
-Show demo here.
 
 Compared with existing acceleration techniques, CLLMs achieve fast parallel decoding without any:
 - Draft models
@@ -38,13 +54,6 @@ This implies numerous advantages of CLLMs:
 - CLLMs eliminate the complexity of training 'good' draft models and managing two different models in a single system.
 - CLLMs share the same architecture with target LLMs which simplifies training and eliminates the need to design additional architecture for specific LLMs.
 - CLLMs can be integrated seamlessly with other techniques for efficient LLM inference (e.g. Lookahead Decoding) and achieve greater speedup.
-
-Empirical results have shown the effectiveness of CLLMs.
-<p align="center">
-  <picture>
-  <img src="assets/img/cllm_speedup.png" width="45%">
-  </picture>
-</p>
 
 ## Installation
 1. Environment setup:
