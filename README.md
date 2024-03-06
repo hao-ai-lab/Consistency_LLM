@@ -36,6 +36,7 @@ A demo of using CLLM to achieve significant improvment ($\sim3\times$) in genera
 </p>
 
 ## Contents
+- [News](#news)
 - [Introduction](#introduction)
 - [Installation](#installation)
 - [Model Weights](#model-weights)
@@ -43,20 +44,23 @@ A demo of using CLLM to achieve significant improvment ($\sim3\times$) in genera
   - [Inference](#inference)
   - [Training](#training)
   - [Evaluation](#evaluation)
-- [References](#references)
-- [Acknowledgements](#acknowledgements)
+- [Citation](#citation)
+
+## News 🔥
+
+- [2024/2] CLLM Paper now available on [arXiv](http://arxiv.org/abs/2403.00835). CLLMs model checkpoints are released on [Huggingface Hub](https://huggingface.co/cllm).
 
 ## Introduction
 Consistency Large Language Models (CLLMs) is a family of efficient parallel decoders refined from target LLMs.
 
-Compared with existing acceleration techniques, CLLMs achieve fast parallel decoding without any:
+Compared with existing fast decoding techniques, CLLMs achieve fast parallel decoding **without the need for**:
 - Draft models
-- Additional architectural components
+- Architectural modifications/auxiliary model components
 
-This implies numerous advantages of CLLMs:
-- CLLMs eliminate the complexity of training 'good' draft models and managing two different models in a single system.
-- CLLMs share the same architecture with target LLMs which simplifies training and eliminates the need to design additional architecture for specific LLMs.
-- CLLMs can be integrated seamlessly with other techniques for efficient LLM inference (e.g. Lookahead Decoding) and achieve greater speedup.
+This introduces a number advantages for CLLMs:
+- CLLMs don't have to deal with the complexity of obtaining 'good' draft models and managing two different models in a single system.
+- CLLMs share the same architecture with target LLMs and require no additional engineering efforts when adopting the technique to different models.
+- CLLMs can be integrated seamlessly with other techniques for efficient LLM inference (e.g. Lookahead Decoding) to achieve even more significant speedup.
 
 ## Installation
 1. Environment setup:
@@ -74,20 +78,23 @@ cd Consistency_LLM
 pip install -r requirements.txt
 ```
 ## Model Weights
-#### Target Model
+#### Target Pre-trained Models
+
 | Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/vicuna-7b-sharegpt-gpt4-48k](https://huggingface.co/cllm/vicuna-7b-sharegpt-gpt4-48k)   |
 | 7B  | GSM8K | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
 | 7B  | Spider | [cllm/deepseek-7b-instruct-spider](https://huggingface.co/cllm/deepseekcoder-7b-instruct-spider) |
 | 7B  | Code-Search-Net Python | [cllm/deepseekcoder_7b_codesearch_net_python](https://huggingface.co/cllm/deepseekcoder_7b_codesearch_net_python) |
-#### CLLM
+
+#### CLLMs
 | Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/consistency-llm-7b-sharegpt48k](https://huggingface.co/cllm/consistency-llm-7b-sharegpt48k)   |
 | 7B  | GSM8K | [cllm/consistency-llm-7b-gsm8k](https://huggingface.co/cllm/consistency-llm-7b-gsm8k) |
 | 7B  | Spider | [cllm/consistency-llm-7b-spider](https://huggingface.co/cllm/consistency-llm-7b-spider) |
 | 7B  | Code-Search-Net Python | [cllm/consistency-llm-7b-codesearchnet](https://huggingface.co/cllm/consistency-llm-7b-codesearchnet) |
+
 ## Usage
 ### Inference 
 ```
@@ -104,6 +111,13 @@ For example, for the gsm8k dataset, run:
 ```
 # max_new_tokens corresponds to the size of n_token_sequence
 CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_path} {max_new_tokens} {max_new_seq_len}
+```
+##### Other command options
+```
+--filename: path to the dataset, currently supporting {spider, python, gsm8k, sharegpt} \ 
+--data_size: maximum number of prompts used to extract Jacobi trajectories \ 
+--use_aug: use data augmentation technique \ 
+--use_labels: add dataset's labels to the output file
 ```
 
 2. Train a CLLM:
@@ -122,6 +136,16 @@ cd eval/gsm8k
 CUDA_VISIBLE_DEVICES=0 acc.py --model_dir {cllm_model_path} --max_new_tokens_for_consistency 16 --temperature 0.0 --top_p 1.0 \
 --output_file_name 'cllm_generated_gsm8k.jsonl' --dev_set "gsm8k" --prompt_type math-single --max_tokens 1024 --use_consistency_decoding
 ```
-## References
 
-## Acknowledgements
+## Citation
+This is the official project repository for the following paper. If you find this repository helpful, Please kindly cite:
+```
+@misc{kou2024cllms,
+      title={CLLMs: Consistency Large Language Models}, 
+      author={Siqi Kou and Lanxiang Hu and Zhezhi He and Zhijie Deng and Hao Zhang},
+      year={2024},
+      eprint={2403.00835},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
+```
