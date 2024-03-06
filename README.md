@@ -24,7 +24,7 @@ Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\ti
   </picture>
 </p>
 
-A demo of using CLLM to achieve significant improvment ($\sim3x$) in generation speed to solve a basic math problem is shown below:
+A demo of using CLLM to achieve significant improvment ($\sim3\times$) in generation speed to solve a basic math problem is shown below:
 
 <p align="center">
   <picture>
@@ -93,7 +93,7 @@ bash applications/run_chat_cllm.sh {model_path} {cllm_type}
 `cllm_type` can take the value of `spider`, `python`, `gsm8k`, `sharegpt`.
 
 ### Training
-1. Collect Jacobi trajectory
+1. Collect Jacobi trajectory:
 - Method 1: Directly download Jacobi trajectory in hugging face to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
 - Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset (e.g. [ShareGPT](https://huggingface.co/datasets/cllm/sharegpt_20230521_2k_clean_lang_split_identity_gpt4), [Spider](https://huggingface.co/datasets/cllm/spider)) to `data/raw_data`. Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
 
