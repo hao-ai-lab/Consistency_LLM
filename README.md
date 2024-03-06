@@ -75,7 +75,7 @@ pip install -r requirements.txt
 | 7B   | ShareGPT |  [cllm/consistency-llm-7b-sharegpt48k](https://huggingface.co/cllm/consistency-llm-7b-sharegpt48k)   |
 | 7B  | GSM8K | [cllm/consistency-llm-7b-gsm8k](https://huggingface.co/cllm/consistency-llm-7b-gsm8k) |
 | 7B  | Spider | [cllm/consistency-llm-7b-spider](https://huggingface.co/cllm/consistency-llm-7b-spider) |
-| 7B  | Code-Search-Net Python | [FasterDecoding/medusa-vicuna-33b-v1.3](https://huggingface.co/FasterDecoding/medusa-vicuna-33b-v1.3) |
+| 7B  | Code-Search-Net Python | [cllm/consistency-llm-7b-codesearchnet](https://huggingface.co/cllm/consistency-llm-7b-codesearchnet) |
 ## Usage
 ### Inference 
 ```
