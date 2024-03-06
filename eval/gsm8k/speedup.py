@@ -23,190 +23,16 @@ from transformers.modeling_attn_mask_utils import (
 from transformers import LlamaModel,LlamaForCausalLM
 import argparse
 
-def delete_false_key_value(
-        self,
-        num_of_false_tokens,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-   
-        for layer_idx in range(len(self.key_cache)):
-            self.key_cache[layer_idx] = self.key_cache[layer_idx][..., :-num_of_false_tokens, :]
-            self.value_cache[layer_idx] = self.value_cache[layer_idx][..., :-num_of_false_tokens, :]
+from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward, jacobi_forward_profiling, detect_repetitive_patterns
 
 DynamicCache.delete_false_key_value = delete_false_key_value
-
-@torch.inference_mode()
-def jacobi_forward(
-    self,
-    input_ids: torch.LongTensor = None,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
-    use_cache: Optional[bool] = None,
-    max_new_tokens: Optional[int] = None,
-    prefill_phase: Optional[bool] = False,
-):
-    
-    assert use_cache == True
-
-    if input_ids is not None:
-        batch_size, seq_length = input_ids.shape[:2]
-    else:
-        raise ValueError("You have to specify either input_ids or inputs_embeds")
-    
-    if prefill_phase: # prefill phase, just compute the keys & values of prompt
-        # self.model is the instance of class LlamaModel
-        inputs_embeds = self.model.embed_tokens(input_ids)
-        past_key_values_length = 0
-        if use_cache:
-            use_legacy_cache = not isinstance(past_key_values, Cache)
-            if use_legacy_cache:
-                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
-            past_key_values_length = past_key_values.get_usable_length(seq_length) 
-
-        if position_ids is None:
-            device = input_ids.device if input_ids is not None else inputs_embeds.device
-            position_ids = torch.arange(
-                past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
-            )
-            position_ids = position_ids.unsqueeze(0)
-
-        if self.model._use_flash_attention_2:
-            # 2d mask is passed through the layers
-            attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
-        elif self.model._use_sdpa :
-            # output_attentions=True can not be supported when using SDPA, and we fall back on
-            # the manual implementation that requires a 4D causal mask in all cases.
-            attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
-                attention_mask,
-                (batch_size, seq_length),
-                inputs_embeds,
-                past_key_values_length,
-            )
-        else:
-            # 4d mask is passed through the layers
-            attention_mask = _prepare_4d_causal_attention_mask(
-                attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
-            )
-        # embed positions
-        hidden_states = inputs_embeds
-
-        # decoder layers
-        for decoder_layer in self.model.layers:
-
-            layer_outputs = decoder_layer(
-                hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_value=past_key_values,
-                use_cache=use_cache,
-            )
-
-            hidden_states = layer_outputs[0]
-
-            if use_cache:
-                next_decoder_cache = layer_outputs[1]
-
-        hidden_states = self.model.norm(hidden_states)
-
-        if self.config.pretraining_tp > 1:
-            lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
-            logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
-            logits = torch.cat(logits, dim=-1)
-        else:
-            logits = self.lm_head(hidden_states)
-        logits = logits.float()
-
-        predict_next_tokens = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
-        first_correct_token = predict_next_tokens[:, -1]
-        return next_decoder_cache, first_correct_token
-    else: # generation phase, input as random_initilized point and output as fixed point
-        accurate_n_gram = torch.zeros_like(input_ids).to(input_ids.device)
-        accurate_length = 0
-        next_point = input_ids
-        while True:
-
-            current_point = next_point
-            inputs_embeds = self.model.embed_tokens(current_point)
-            attention_mask = None
-            position_ids = None
-            seq_length = current_point.shape[1]
-            if use_cache:
-                use_legacy_cache = not isinstance(past_key_values, Cache)
-                if use_legacy_cache:
-                    past_key_values = DynamicCache.from_legacy_cache(past_key_values)
-                past_key_values_length = past_key_values.get_usable_length(seq_length) 
-            # print(past_key_values_length) # return previous_seq_length
-            if position_ids is None:
-                device = input_ids.device if input_ids is not None else inputs_embeds.device
-                position_ids = torch.arange(
-                    past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
-                )
-                position_ids = position_ids.unsqueeze(0)
-
-            if self.model._use_flash_attention_2:
-                # 2d mask is passed through the layers
-                attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
-            elif self.model._use_sdpa :
-                # output_attentions=True can not be supported when using SDPA, and we fall back on
-                # the manual implementation that requires a 4D causal mask in all cases.
-                attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
-                    attention_mask,
-                    (batch_size, seq_length),
-                    inputs_embeds,
-                    past_key_values_length,
-                )
-            else:
-                # 4d mask is passed through the layers
-                attention_mask = _prepare_4d_causal_attention_mask(
-                    attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
-                )
-            # embed positions
-            hidden_states = inputs_embeds
-
-            # decoder layers            
-            for decoder_layer in self.model.layers:
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_value=past_key_values,
-                    use_cache=use_cache,
-                )
-
-                hidden_states = layer_outputs[0]
-
-            hidden_states = self.model.norm(hidden_states)
-
-            if self.config.pretraining_tp > 1:
-                lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
-                logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
-                logits = torch.cat(logits, dim=-1)
-            else:
-                logits = self.lm_head(hidden_states)
-
-            logits = logits.float()
-            all_shift_one_token = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
-            next_point= torch.cat((current_point[0, 0].view(1,-1), all_shift_one_token[0, :seq_length-1].view(1,-1)), dim=-1)
-            first_false_index = torch.where(torch.eq(current_point[0], next_point[0]) == False)[0]
-            if len(first_false_index) > 0:
-                fast_forward_cnt = first_false_index[0].item()
-                past_key_values.delete_false_key_value(seq_length - fast_forward_cnt) # delete the false keys & values
-            else:
-                fast_forward_cnt = torch.sum(torch.eq(current_point, next_point)).item()
-                accurate_n_gram[0, accurate_length : accurate_length + fast_forward_cnt] = next_point[0, :fast_forward_cnt]         
-                first_correct_token = all_shift_one_token[:,-1]   
-                break 
-            accurate_n_gram[0, accurate_length : accurate_length + fast_forward_cnt] = next_point[0, :fast_forward_cnt]
-            accurate_length += fast_forward_cnt
-            next_point = next_point[0, fast_forward_cnt:].view(1,-1) # only false tokens should be re-generated
-
-        return accurate_n_gram, first_correct_token
-        
-
 LlamaForCausalLM.jacobi_forward = jacobi_forward
 
 def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
+    converge_step = []
+    forward_times = 0
 
+    all_jacobian_trajectory = []
     prompt_len = torch.sum(inputs['attention_mask'], dim=-1)
     generation = inputs['input_ids']
     ### prefill the kv-cache
@@ -220,43 +46,51 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
         # randomly initialize the first point of jacobian trajectory
         random_point = torch.tensor(random.choices(generation[0], k=(max_new_tokens-1)), device="cuda").view(1,-1)
         input_ids = torch.cat((first_correct_token.view(1,-1), random_point),dim=-1)
-        n_gram_generation, first_correct_token = model.jacobi_forward(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False)
+        jacobian_trajectory, n_gram_generation, first_correct_token, iter_steps = model.jacobi_forward(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False)
+        forward_times += iter_steps
+        all_jacobian_trajectory.append(jacobian_trajectory)
         eos_positions = torch.where(n_gram_generation[0]==tokenizer.eos_token_id)[0]
+
         if len(eos_positions)>0:
             eos_reached = True
         
         ### see if next max_new_tokens should be generated & if True, update weights and prepare new input_id 
         generation = torch.cat((generation, n_gram_generation), dim=-1)
-
         if eos_reached or itr*max_new_tokens > max_new_seq_len:
             break
+    
+    # to support bsz > 1
+    converge_step.append(forward_times / itr)
 
-    return generation[0, prompt_len:]
-
+    return generation[0, prompt_len:], converge_step, all_jacobian_trajectory
 
 def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len):
 
     time_speed = []
     eos_reached = False
     inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-    t1 = time.time() 
-    jacobi_generation = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
-    t2 = time.time()
-    t = t2-t1
-    # prompt_token_len = torch.sum(inputs['attention_mask'], dim=-1)
+    t1 = torch.cuda.Event(enable_timing=True)
+    t2 = torch.cuda.Event(enable_timing=True)
+    t1.record()
+    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
+    t2.record()
+    torch.cuda.synchronize()
+    
+    t = t1.elapsed_time(t2) / 1000
+    prompt_token_len = torch.sum(inputs['attention_mask'], dim=-1)
     eos_positions = torch.where(jacobi_generation==tokenizer.eos_token_id)[0]
     if len(eos_positions)>0:
         eos_reached = True
         total_generation_len = jacobi_generation[:int(eos_positions[0])].shape[0]
-        time_speed.append(total_generation_len/t)
+        decoded_generation = tokenizer.decode(jacobi_generation[:int(eos_positions[0])])
     else:
-        eos_reached = False
+        total_generation_len = jacobi_generation.shape[0]
+        decoded_generation = tokenizer.decode(jacobi_generation)
+    time_speed.append(total_generation_len/t)
 
-    return time_speed, eos_reached
+    return eos_reached, time_speed, converge_step, jacobi_generation, decoded_generation, all_jacobian_trajectory
     
-
 def speed_compare(args):
-
     # Load model and tokenizer
     model = transformers.LlamaForCausalLM.from_pretrained(args.test_model_path, low_cpu_mem_usage=True, device_map='auto', 
                                              torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
@@ -273,7 +107,9 @@ def speed_compare(args):
     with open(filename, 'r') as file:
         for line in file:
             data.append(json.loads(line))
-    data_lst = range(501)
+    
+    per_request_meta_trajectory_records = []
+    data_lst = range(args.data_size)
     # only support batch size ==1 now
     for i in tqdm(data_lst): 
         d = data[i]
@@ -285,12 +121,172 @@ def speed_compare(args):
         ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
         ar_end = time.time()
         print(f'ar generated length: {len(ar_generated)}')
-        time_speed_lst, eos_reached = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
-        if eos_reached:
-            jacobian_time_speed.append(*time_speed_lst)
-            ar_time_speed.append(len(ar_generated)/(ar_end - ar_begin))
-        else:
-            continue
+        eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len)
+        
+        if not detect_repetitive_patterns(tokenizer, decoded_ids, repeat_ngram_size=10):
+            per_request_meta_trajectory_records.append(all_jacobian_trajectory)
+
+            jacobian_time_speed.append(*jacobian_time_speed_lst)
+            converge_step.append(*jacobian_itr_step_lst)
+
+            inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
+
+            gen_cfg = GenerationConfig.from_model_config(model.config)
+
+            ar_begin = torch.cuda.Event(enable_timing=True)
+            ar_end = torch.cuda.Event(enable_timing=True)
+            ar_begin.record()
+            ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=512)[0][inputs.input_ids.shape[-1]:-1]
+            ar_end.record()
+            torch.cuda.synchronize()
+            
+            print(ar_generated)
+            print(f'ar generated length: {len(ar_generated)}')
+            ar_time = ar_begin.elapsed_time(ar_end) / 1000
+            print(f'ar time: {len(ar_generated)/(ar_time)}')
+            ar_time_speed.append(len(ar_generated)/ar_time)
+    
+    # all trajectory analsis for speedup interpretability
+    fast_forward_and_fix_points_statistics = {}
+    # initialize dict for all stats
+    fast_forward_and_fix_points_statistics['fix_points'] = []
+    fast_forward_and_fix_points_statistics['fast_forward'] = []
+    fast_forward_and_fix_points_statistics['fix_points_per_gram'] = []
+
+    # iterate over all requests
+    for all_generation_trajectory in per_request_meta_trajectory_records:
+        fast_forward_metrics = []
+
+        fix_points_metrics = 0
+
+        effective_trajectory_length = training_args.max_new_tokens
+        # iterate over all n-grams, across the sequence length dimension
+        # last trajectory contains eos, we need to keep track
+        last_traj_flag = False
+        for n_gram_id in range(len(all_generation_trajectory)):
+            # initialize fix_points_tracker
+            fix_points_tracker = {}
+            for pos_ind in range(training_args.max_new_tokens):
+                # to track how many times right token is predicted right
+                fix_points_tracker[pos_ind] = 0
+
+            # initialize single_fast_forward_metrics
+            single_fast_forward_metrics = []
+
+            generation_trajectory = all_generation_trajectory[n_gram_id]
+
+            if n_gram_id == len(all_generation_trajectory) - 1:
+                last_traj_flag = True
+
+            correct_token_cnt = 0
+            fix_points_per_gram = 0
+            # look at a single n-gram trajectory
+            # iterate over all points in the trajectory (with the same dimension)
+            eos_reached = False
+            eos_pos = None
+            steps_to_convergence = 0
+            for id, generation_ids in enumerate(generation_trajectory):
+                # skip initialiation
+                if id == 0:
+                    continue
+                if eos_reached == True:
+                    break
+                assert len(generation_ids[0]) == training_args.max_new_tokens
+
+                # iterate over all tokens
+                fast_forward_cnt = 0
+
+                contiguous_correct_flag = True
+
+                for i in range(len(generation_ids[0])):
+                    token_generated = generation_ids[0][i]
+                    if generation_ids[0][i] == generation_trajectory[-1][0][i]:
+                        #print(BLUE + tokenizer.decode([token_generated]) + RESET, end=" ")  # print blue token
+                        # update fix point tracker
+                        fix_points_tracker[i] += 1
+
+                        # update fast-forward tracker
+                        # first (i + 1) is to offset index
+                        if (i + 1) > correct_token_cnt and contiguous_correct_flag:
+                            fast_forward_cnt += 1
+
+                        # check whether eos has been reached as a contiguous sentence
+                        if last_traj_flag and token_generated == tokenizer.eos_token_id and contiguous_correct_flag:
+                            effective_trajectory_length = i + 1
+
+                            eos_reached = True
+                            eos_pos = i
+
+                            # before break out of the loop, uppdate values
+                            correct_token_cnt += fast_forward_cnt
+
+                            break
+                    else:
+                        #print(RED + tokenizer.decode([token_generated]) + RESET, end=" ")  # print red token
+                        if fix_points_tracker[i] > 0:
+                                fix_points_tracker[i] = 0
+
+                        if contiguous_correct_flag:
+                            correct_token_cnt += fast_forward_cnt
+                            contiguous_correct_flag = False
+
+                single_fast_forward_metrics.append(fast_forward_cnt)
+
+                steps_to_convergence += 1
+
+            ff_baseline_cnt = {}
+            for pos_ind in range(effective_trajectory_length):
+                # to track how many times right token should be predicted right, if there is only fast_forward
+                ff_baseline_cnt[pos_ind] = 0
+
+            fast_forward_ptr = 0
+            next_ff_flag = True
+            for pos_ind in range(effective_trajectory_length):
+                if next_ff_flag:
+                    fast_forward_offset = single_fast_forward_metrics[fast_forward_ptr]
+                    next_ff_flag = False
+
+                ff_baseline_cnt[pos_ind] = steps_to_convergence - fast_forward_ptr
+
+                fast_forward_offset -= 1
+                if fast_forward_offset == 0:
+                    next_ff_flag = True
+                    fast_forward_ptr += 1
+
+            for pos_ind in fix_points_tracker.keys():
+                cnt = fix_points_tracker[pos_ind]
+                ff_baseline = ff_baseline_cnt[pos_ind]
+                if cnt > ff_baseline:
+                    fix_points_metrics += 1
+                    fix_points_per_gram += 1
+
+                if last_traj_flag and pos_ind == eos_pos:
+                    break
+
+            # record avg fast forward count over a single n-gram
+            fast_forward_metrics.append(np.average(single_fast_forward_metrics))
+            fast_forward_and_fix_points_statistics['fix_points_per_gram'].append(fix_points_per_gram)
+
+
+        all_fast_forward = fast_forward_and_fix_points_statistics['fast_forward']
+        all_fix_points = fast_forward_and_fix_points_statistics['fix_points']
+
+        avg_fast_forward = np.average(fast_forward_metrics)
+        all_fast_forward.append(avg_fast_forward)
+        all_fix_points.append(fix_points_metrics)
+
+
+    print(f"global average fast forward cnt: {np.average(fast_forward_and_fix_points_statistics['fast_forward'])}")
+    print(f"global average fix-point cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points'])}")
+    print(f"global average fix-point per gram cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points_per_gram'])}")
+    
+    save_path = 'data/speedup_profiling_results/'
+
+    new_file_path= f'gsm8k_speedup_profiling_results_{training_args.max_new_tokens}_{training_args.max_new_seq_len}_{training_args.data_size}_stats.json'
+    fast_forward_and_fix_points_statistics_file = os.path.join(save_path, new_file_path)
+
+    with open(fast_forward_and_fix_points_statistics_file, 'w') as f:
+        json.dump(fast_forward_and_fix_points_statistics, f, indent=4)
     
     ar_time_speed = ar_time_speed[1:]
     jacobian_time_speed = jacobian_time_speed[1:]
@@ -310,8 +306,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_tokens", type=int, default=16)
     parser.add_argument("--max_new_seq_len", type=int, default=1024)
     parser.add_argument("--test_model_path", type=str,
-                        default="llm-model/vicuna-7b-sharegpt-gpt4-48k")
+                        default="models/vicuna-7b-sharegpt-gpt4-48k")
+    parser.add_argument("--data_size", type=str,
+                        default=500)
     args = parser.parse_args() 
     speed_compare(args)
-
-    # CUDA_VISIBLE_DEVICES=7 python speedup.py --test_model path_to_cllm --filename ./test.jsonl --max_new_tokens 16

@@ -13,8 +13,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Sequence
 import copy
+
 import numpy as np
-import os
+
+from cllm.utils import jacobian_generated_data_postprocessed
 
 ####### Preprocessing spider dataset #######
 IGNORE_INDEX = -100
@@ -65,17 +67,44 @@ def preprocess(
     sources_input_ids = sources_tokenized["input_ids"]
 
     labels = copy.deepcopy(input_ids)
-    # for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):
-    #     label[:source_len] = IGNORE_INDEX
 
     return dict(sources_input_ids=sources_input_ids, sources_len=sources_tokenized["input_ids_lens"], labels_ids=labels)
 
-def train_tokenize_function(database_path, examples, tokenizer):
+def preprocess_sharegpt(data, tokenizer):
+    
+    train_dataset = []
+    for i in tqdm(range(len(data))):
+        d = data[i]
+        #if len(d["conversations"]) > 2:
+        #    continue
+        prompt = d["conversations"][0]["value"]
+        
+        if len(prompt) > 1024:
+            # exclude prompts that are too long
+            continue
+
+        conv = get_conversation_template(model_path)
+        conv.append_message(conv.roles[0], prompt)
+        conv.append_message(conv.roles[1], "")
+        prompt_with_template = conv.get_prompt()
+
+        #jacobian_prompt = prompt_with_template
+        prompt_with_template_ids = tokenizer(prompt_with_template, return_tensors="pt")['input_ids']
+        inputs = torch.Tensor(prompt_with_template_ids).unsqueeze(0).to(dtype=torch.int)
+
+        labels = tokenizer(prompt_with_template + d["conversations"][1]["value"], return_tensors="pt")['input_ids'][0]
+        labels_ids = torch.concat((labels, torch.tensor([tokenizer.eos_token_id])), dim=-1).to(dtype=torch.int)
+        
+        train_dataset.append(dict(sources_input_ids=inputs, labels_ids=labels_ids))
+
+    return train_dataset
+
+def train_tokenize_function_spider(examples, tokenizer):
     db_ids = [id for id in examples['db_id']]
 
     prompts = []
     for db_name in db_ids:
-        db_path = os.join(database_path, f"{db_name}/{db_name}.sqlite")
+        db_path = f"../spider_eval/database/spider/database/{db_name}/{db_name}.sqlite"
         con = sqlite3.connect(db_path)
         cursor = con.cursor()
         cursor.execute('SELECT name FROM sqlite_master WHERE type="table";')
@@ -106,6 +135,17 @@ def train_tokenize_function(database_path, examples, tokenizer):
         for prompt, instruction in zip(prompts, examples['question'])
     ]
     targets = [f"{output}\n{EOT_TOKEN}" for output in examples['query']]
+
+    data_dict = preprocess(sources, targets, tokenizer)
+    return data_dict
+
+def train_tokenize_function_code_search_net(examples, tokenizer):
+    prompt = "Please generate code based on the following doc:\n"
+
+    sources = [
+        build_instruction_prompt(prompt+instruction) for instruction in examples['func_documentation_string']
+    ]
+    targets = [f"{output}\n{EOT_TOKEN}" for output in examples['func_code_string']]
 
     data_dict = preprocess(sources, targets, tokenizer)
     return data_dict
@@ -142,7 +182,7 @@ def get_jacobian_trajectory(
         current_generation = next_generation
         logits = model(current_generation, generate_attention_mask).logits
         logits_trajectory.append(logits)
-        next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
+        next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
 
         # hold prompt unchanged and update generated tokens
         for i in range(bsz):
@@ -150,168 +190,136 @@ def get_jacobian_trajectory(
         trajectory.append(next_generation)
         if torch.all(torch.eq(next_generation, current_generation)).item():
             eos_reached = len(torch.where(trajectory[-1] == tokenizer.eos_token_id)[0])>0
-            return trajectory[:-1], logits_trajectory[-1], eos_reached # right generation is saved twice so we delete the last element of trajectory list
+            return trajectory[:-1], logits_trajectory[-1], eos_reached # converged generation is saved twice so we delete the last element of trajectory list
         itr+=1
 
-def detect_repetitive_patterns(prompt_ids, repeat_ngram_size):
+def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, use_labels, data_size):
 
-    if len(prompt_ids.shape)==2:
-        prompt_ids = prompt_ids[0]
-    elif len(prompt_ids.shape)==3:
-        prompt_ids = prompt_ids[0][0]
-    else:
-        print(f'Unexpected shape {prompt_ids.shape}! Please check prompt ids')
-        assert False
+    if 'sharegpt' in filename.lower():
+        with open(filename) as f:
+            data = json.load(f)
         
-    count = 1
-    for i in range(1, len(prompt_ids)):
-        if prompt_ids[i] == prompt_ids[i - 1]:
-            count += 1
-            if count == repeat_ngram_size:
-                return True
-        else:
-            count = 1
+        train_dataset = preprocess_sharegpt(data, tokenizer)
+    elif 'spider' in filename.lower(): #use another preprocess method when training with spider dataset
+        raw_train_datasets = datasets.load_dataset('spider', split='train')
 
-    return False
+        train_dataset = raw_train_datasets.map(
+            train_tokenize_function_spider,
+            batched=True,
+            batch_size=3000,
+            num_proc=32,
+            remove_columns=raw_train_datasets.column_names,
+            load_from_cache_file=True, # not args.overwrite_cache
+            desc="Running Encoding",
+            fn_kwargs={"tokenizer": tokenizer}
+        )
+    elif 'code_search_net' in filename.lower(): #use another preprocess method when training with spider dataset
+        raw_train_datasets = datasets.load_dataset('code_search_net', 'python', split='train')
 
-def jacobian_generated_data_postprocessed(generated_data, model_path):
-    
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    low_quality_data_id_lst = []
-    # delete low quality data with repetitive pattern
-    for i, d in enumerate(generated_data):
-        if detect_repetitive_patterns(np.array(d['prompt_ids']), repeat_ngram_size=10):
-            prompt_ids = np.array(d['prompt_ids'])
-            if len(prompt_ids.shape)==2:
-                prompt_ids = prompt_ids[0]
-            elif len(prompt_ids.shape)==3:
-                prompt_ids = prompt_ids[0][0]
-            print(f'Low quality generation detected: {tokenizer.decode(prompt_ids)}')
-            low_quality_data_id_lst.append(i)
-    print(f'{len(low_quality_data_id_lst)} low quality data detected. {len(low_quality_data_id_lst)/len(generated_data)} percent of low quality data.')
+        train_dataset = raw_train_datasets.map(
+            train_tokenize_function_code_search_net,
+            batched=True,
+            batch_size=3000,
+            num_proc=32,
+            remove_columns=raw_train_datasets.column_names,
+            load_from_cache_file=True, # not args.overwrite_cache
+            desc="Running Encoding",
+            fn_kwargs={"tokenizer": tokenizer}
+        )
+    elif 'gsm8k' in filename.lower():
+        data = []
+        with open(filename, 'r') as file:
+            for line in file:
+                data.append(json.loads(line))
 
-    # add complete teacher outputs
-    teacher_output_inspector = {}
-    for d in generated_data:
-        data_id = d["data_id"]
-        if data_id in teacher_output_inspector.keys():
-            all_teacher_output_map = teacher_output_inspector[data_id]
-        else:
-            all_teacher_output_map = {}
-            #print(data_id)
-        itr = d["jacobian_itr_id"]
-        # handle bsz=1 case only
-        all_teacher_output_map[itr] = d["teacher_output_ids"][0]
-        teacher_output_inspector[data_id] = all_teacher_output_map
+        prompt_mapping = "Question:\n{input}\nAnswer:\nLet's think step by step.\n"
+        processed_prompts = [prompt_mapping.format(input=query['question']) for query in data]
+        answers = [query['answer'] for query in data]
+        
+        train_dataset = preprocess_gsm8k(processed_prompts, answers, tokenizer)
+    else:
+        raise NotImplementedError('Jacobi trajectory collection for dataset: {filename.lower()} is not currently supported.')
+        
+    prompt_size = min(len(train_dataset), data_size)
 
-    teacher_output_collector = {}
-    for d_id in teacher_output_inspector.keys():
-        all_teacher_output_map = teacher_output_inspector[d_id]
-        all_itr = [int(s.split('_')[1]) for s in all_teacher_output_map.keys()]
-        print(all_itr)
-        max_itr = max(all_itr)
-        max_itr_s = "itr_" + str(max_itr)
-        complete_teacher_output = all_teacher_output_map[max_itr_s]
-        teacher_output_collector[d_id] = complete_teacher_output
-
-    f_result = []
-    for d in generated_data:
-        data_id = d["data_id"]
-        complete_teacher_output = teacher_output_collector[data_id]
-        d["complete_teacher_output_ids"] = complete_teacher_output
-        # print(tokenizer.decode(complete_teacher_output))
-        f_result.append(d)
-    
-    cleaned_f_result = []
-    for i, d in enumerate(generated_data):
-        if i in low_quality_data_id_lst:
-            continue
-        cleaned_f_result.append(d)
-
-    # print(len(cleaned_f_result))
-
-    return cleaned_f_result
-
-def main(database_path, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, use_labels):
-    
-    raw_train_datasets = load_dataset("spider")["train"]
-    train_dataset = raw_train_datasets.map(
-        train_tokenize_function,
-        batched=True,
-        batch_size=3000,
-        num_proc=32,
-        remove_columns=raw_train_datasets.column_names,
-        load_from_cache_file=True, # not args.overwrite_cache
-        desc="Running Encoding",
-        fn_kwargs={ "database_path": database_path, "tokenizer": tokenizer}
-    )
+    counter = 0
     new_data = []
-    for i in tqdm(range(len(train_dataset))):
+
+    for i in tqdm(prompt_size):
         d = train_dataset[i]
-        jacobian_prompt = tokenizer.decode(d['sources_input_ids'])[21:]
+        inputs = torch.Tensor(d['sources_input_ids']).unsqueeze(0).to(device=model.device, dtype=torch.int)
+
         itr = 0
         eos_reached=False
         while itr * max_new_tokens < max_new_seq_len and eos_reached==False:
-        # while eos_reached==False:
             dic = {}
             dic['data_id']=f'data_{i}'
             dic['jacobian_itr_id']=f'itr_{itr}'
             dic['prompt_ids_len'] = d['sources_len']
-            dic['jacobian_prompt'] = jacobian_prompt
-            # d['sources_len'] == tokenizer(jacobian_prompt, return_tensors="pt")['input_ids'].shape[1]
-            inputs = tokenizer(jacobian_prompt, return_tensors="pt").to(model.device)
-            jacobian_trajectory_ids, teacher_logits, eos_reached = get_jacobian_trajectory(model, tokenizer, inputs['input_ids'], inputs['attention_mask'], max_new_tokens)
+
+            attention_mask = torch.full_like(inputs, 1, dtype=torch.int).to(model.device)
+            dic['prompt_ids'] = inputs.tolist()
+
+            print('retrieving one Jacobian trajectory...')
+            jacobian_trajectory_ids, teacher_logits, eos_reached = get_jacobian_trajectory(model, tokenizer, inputs, attention_mask, max_new_tokens)
             dic["answer_trajectory_ids"] = []
-            for _, id in enumerate(jacobian_trajectory_ids): 
+            for _, id in enumerate(jacobian_trajectory_ids):
                 # only support batch size=1 now
-                dic["answer_trajectory_ids"].append(id[0][-max_new_tokens:].tolist()) 
+                dic["answer_trajectory_ids"].append(id[0][-max_new_tokens:].tolist())
 
             if use_aug:
-                for j in range(len(dic["answer_trajectory_ids"])-3, -1, -1):
-                    correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j]!=dic["answer_trajectory_ids"][-1]))[0]
-                    for correct_id in random.choices(correct_positions, k=8):
+                for j in range(len(dic["answer_trajectory_ids"])-3, 1, -1):
+                    correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j])!= torch.tensor(dic["answer_trajectory_ids"][-1]))[0]
+                    if correct_positions.shape[0] > 1:
+                        corrected_size = random.sample(range(1, correct_positions.shape[0]), k=1)
+                    else:
+                        continue
+                    for correct_id in random.choices(correct_positions, k=corrected_size[0]):
                         aug_trajectory = dic["answer_trajectory_ids"][j].copy()
                         aug_trajectory[correct_id] = dic["answer_trajectory_ids"][-1][correct_id]
                     dic["answer_trajectory_ids"].insert(0, aug_trajectory)
 
             if use_labels:
                 dic['labels_ids'] = d['labels_ids']
-            jacobian_prompt = tokenizer.decode(jacobian_trajectory_ids[-1][0])[21:] # 21: is to remove the <｜begin▁of▁sentence｜>(bos) generated by tokenizer
-            print(jacobian_prompt)
+
+            inputs = jacobian_trajectory_ids[-1]
+
+            dic['teacher_output_ids'] = jacobian_trajectory_ids[-1].tolist()
             new_data.append(dic)
             itr+=1
-                
+
+            print(f'writing counter = {counter}...')
+            counter += 1
+    
     print('Jacobi trajectory has been collected. Now delete low-quality generation as post processing.')
-    save_path = './collected_jacobi_trajectory/'    
+    save_path = 'data/collected_jacobi_trajectory/'    
     cleaned_data = jacobian_generated_data_postprocessed(new_data, model_path)
-    new_file_name = "cleaned_" + f"spider_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
+    new_file_name = "cleaned_" + f"{filename.lower()}_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
     new_file_path = os.path.join(save_path, new_file_name)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     with open(new_file_path, 'w') as f_merged:
         json.dump(cleaned_data, f_merged)
-    
+                
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database_path", type=str,
-                        default="sharegpt/sharegpt_20230521_2k_clean_lang_split_identity_gpt4.json")
+    parser.add_argument("--filename", type=str,
+                        default="data/raw_data/sharegpt_20230521_2k_clean_lang_split_identity_gpt4.json")
     parser.add_argument("--max_new_tokens", type=int, default=16)
     parser.add_argument("--max_new_seq_len", type=int, default=512)
     parser.add_argument("--model", type=str,
-                        default="llm-model/vicuna-7b-sharegpt-gpt4-48k")
-    parser.add_argument("--use_aug", action="store_true")
-    parser.add_argument("--use_labels", action="store_true")
+                        default="models/vicuna-7b-v1.5")
+    parser.add_argument("--data_size", default=5000)
+    parser.add_argument("--use_aug", default=True)
+    parser.add_argument("--use_labels", default=True)
     args = parser.parse_args()
-
-    database_path = args.database_path
+    filename = args.filename
     model_path = args.model
     max_new_tokens = args.max_new_tokens
     max_new_seq_len = args.max_new_seq_len
     model = LlamaForCausalLM.from_pretrained(model_path, low_cpu_mem_usage=True, device_map='cuda', 
                                              torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
     tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right", use_fast=True)
-    main(database_path, model, tokenizer, max_new_tokens, max_new_seq_len, args.use_aug, args.use_labels)
 
-    # for spider dataset generation
-    # CUDA_VISIBLE_DEVICES=7 python generate_trajectory_spider.py --model path_to_target_model --database_path_to_db_path ./raw_data/spider/database --use_aug --use_labels --max_new_tokens 16 --max_new_seq_len 512
+    main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, args.use_aug, args.use_labels, args.data_size)

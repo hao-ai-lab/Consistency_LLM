@@ -1,55 +1,31 @@
-from dataclasses import dataclass, field
-import json
-import math
-import pathlib
-import functools
-from typing import Dict, Optional, Sequence, List, Tuple
-import random
-from tqdm import tqdm
-import torch.nn.functional as F
-import sqlite3
-import time
-import numpy as np
 import torch
-from torch.utils.data import Dataset
+import argparse
+import subprocess
+
+import time, os
+import random
+from typing import Dict, Optional, Sequence, List, Tuple
 import transformers
 from transformers.trainer_pt_utils import LabelSmoother, get_module_class_from_name
 from fastchat.model.model_adapter import get_conversation_template
 from transformers.cache_utils import Cache, DynamicCache
-from transformers.modeling_attn_mask_utils import (
-    _prepare_4d_causal_attention_mask,
-    _prepare_4d_causal_attention_mask_for_sdpa,
-)
 from transformers import LlamaModel,LlamaForCausalLM
-import argparse
+from transformers.generation import GenerationConfig
 
-def build_instruction_prompt(instruction: str):
-    return '''### Instruction:
-{}
-### Response:
-'''.format(instruction.strip()).lstrip()
-
-def delete_false_key_value(
-        self,
-        num_of_false_tokens,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-   
-        for layer_idx in range(len(self.key_cache)):
-            self.key_cache[layer_idx] = self.key_cache[layer_idx][..., :-num_of_false_tokens, :]
-            self.value_cache[layer_idx] = self.value_cache[layer_idx][..., :-num_of_false_tokens, :]
-
-DynamicCache.delete_false_key_value = delete_false_key_value
+from cllm.utils import get_default_question, get_system_prompt, get_instruction_template, delete_false_key_value
 
 @torch.inference_mode()
 def jacobi_forward(
     self,
     input_ids: torch.LongTensor = None,
+    tokenizer=None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
     past_key_values: Optional[List[torch.FloatTensor]] = None,
     use_cache: Optional[bool] = None,
     max_new_tokens: Optional[int] = None,
     prefill_phase: Optional[bool] = False,
+    chat: Optional[bool] = False,
 ):
     
     assert use_cache == True
@@ -122,13 +98,20 @@ def jacobi_forward(
             logits = self.lm_head(hidden_states)
         logits = logits.float()
 
-        predict_next_tokens = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
+        predict_next_tokens = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.001,  dim=-1)
         first_correct_token = predict_next_tokens[:, -1]
         return next_decoder_cache, first_correct_token
     else: # generation phase, input as random_initilized point and output as fixed point
+        jacobian_trajectory = []
         accurate_n_gram = torch.zeros_like(input_ids).to(input_ids.device)
         accurate_length = 0
+
         next_point = input_ids
+        jacobian_trajectory.append(next_point)
+
+        iter_counter = 0
+
+        prev_len = 0
         while True:
 
             current_point = next_point
@@ -191,32 +174,74 @@ def jacobi_forward(
                 logits = self.lm_head(hidden_states)
 
             logits = logits.float()
-            all_shift_one_token = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
-            next_point= torch.cat((current_point[0, 0].view(1,-1), all_shift_one_token[0, :seq_length-1].view(1,-1)), dim=-1)
+            all_shift_one_token = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.001, dim=-1)
+
+            next_point = torch.cat((current_point[0, 0].view(1,-1), all_shift_one_token[0, :seq_length-1].view(1,-1)), dim=-1)
+
             first_false_index = torch.where(torch.eq(current_point[0], next_point[0]) == False)[0]
+            
+            jacobian_trajectory.append(next_point)
+
             if len(first_false_index) > 0:
                 fast_forward_cnt = first_false_index[0].item()
+
                 past_key_values.delete_false_key_value(seq_length - fast_forward_cnt) # delete the false keys & values
             else:
                 fast_forward_cnt = torch.sum(torch.eq(current_point, next_point)).item()
+
                 accurate_n_gram[0, accurate_length : accurate_length + fast_forward_cnt] = next_point[0, :fast_forward_cnt]         
                 first_correct_token = all_shift_one_token[:,-1]   
+                if chat:
+                    if tokenizer.eos_token_id in accurate_n_gram[0, :accurate_length + fast_forward_cnt]:
+                        eos_positions = torch.where(accurate_n_gram[0]==tokenizer.eos_token_id)[0]
+                        eos_position = eos_positions[0]
+                        generated_str = tokenizer.decode(accurate_n_gram[0, :eos_position], skip_special_tokens=True)
+                    else:
+                        generated_str = tokenizer.decode(accurate_n_gram[0, :accurate_length + fast_forward_cnt], skip_special_tokens=True)
+
+                    print(generated_str[prev_len:], flush=True, end="")
+                    prev_len = len(generated_str)
                 break 
+
             accurate_n_gram[0, accurate_length : accurate_length + fast_forward_cnt] = next_point[0, :fast_forward_cnt]
             accurate_length += fast_forward_cnt
             next_point = next_point[0, fast_forward_cnt:].view(1,-1) # only false tokens should be re-generated
 
-        return accurate_n_gram, first_correct_token
-        
+            if chat:
+                if tokenizer.eos_token_id in accurate_n_gram[0, :accurate_length]:
+                    eos_positions = torch.where(accurate_n_gram[0]==tokenizer.eos_token_id)[0]
+                    eos_position = eos_positions[0]
 
+                    generated_str = tokenizer.decode(accurate_n_gram[0, :eos_position], skip_special_tokens=True)
+                else:
+                    generated_str = tokenizer.decode(accurate_n_gram[0, :accurate_length], skip_special_tokens=True)
+
+                print(generated_str[prev_len:], flush=True, end="")
+                prev_len = len(generated_str)
+
+            iter_counter += 1
+
+        return accurate_n_gram, first_correct_token, iter_counter, accurate_length
+        
+DynamicCache.delete_false_key_value = delete_false_key_value
 LlamaForCausalLM.jacobi_forward = jacobi_forward
 
 def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
+    #converge_step = []
+    CHAT = int(os.environ.get("CHAT", 0))
+    if CHAT:
+        chat = True
+    else:
+        chat = False
+    forward_times = 0
+
+    #all_jacobian_trajectory = []
 
     prompt_len = torch.sum(inputs['attention_mask'], dim=-1)
     generation = inputs['input_ids']
     ### prefill the kv-cache
-    past_key_values, first_correct_token = model.jacobi_forward(input_ids=inputs['input_ids'], max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True)
+
+    past_key_values, first_correct_token = model.jacobi_forward(input_ids=inputs['input_ids'], tokenizer=tokenizer, max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True, chat=chat)
     ### generation phase
     itr = 0
     eos_reached = False
@@ -226,8 +251,13 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
         # randomly initialize the first point of jacobian trajectory
         random_point = torch.tensor(random.choices(generation[0], k=(max_new_tokens-1)), device="cuda").view(1,-1)
         input_ids = torch.cat((first_correct_token.view(1,-1), random_point),dim=-1)
-        n_gram_generation, first_correct_token = model.jacobi_forward(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False)
+        n_gram_generation, first_correct_token, iter_steps, accurate_length = model.jacobi_forward(input_ids=input_ids, tokenizer=tokenizer, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False, chat=chat)
+        forward_times += iter_steps
+        global_accurate_length += accurate_length
+        #all_jacobian_trajectory.append(jacobian_trajectory)
+        
         eos_positions = torch.where(n_gram_generation[0]==tokenizer.eos_token_id)[0]
+
         if len(eos_positions)>0:
             eos_reached = True
         
@@ -237,115 +267,108 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
         if eos_reached or itr*max_new_tokens > max_new_seq_len:
             break
 
-    return generation[0, prompt_len:]
+    return generation, global_accurate_length / forward_times
 
-
-def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len):
-
-    time_speed = []
-    eos_reached = False
-    inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-    t1 = time.time() 
-    jacobi_generation = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
-    t2 = time.time()
-    t = t2-t1
-    # prompt_token_len = torch.sum(inputs['attention_mask'], dim=-1)
-    eos_positions = torch.where(jacobi_generation==tokenizer.eos_token_id)[0]
-    if len(eos_positions)>0:
-        eos_reached = True
-        total_generation_len = jacobi_generation[:int(eos_positions[0])].shape[0]
-        time_speed.append(total_generation_len/t)
-    else:
-        eos_reached = False
-
-    return time_speed, eos_reached
-    
-
-def speed_compare(args):
-
-    # Load model and tokenizer
-    model = transformers.LlamaForCausalLM.from_pretrained(args.test_model_path, low_cpu_mem_usage=True, device_map='auto', 
-                                             torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.teacher_model_path,
-        padding_side="right",
-        use_fast=False,
-    )
-    ##### compare speed of jacobian and ar #####
-    ar_time_speed = []
-    jacobian_time_speed = []
-    filename = args.filename
-    data = []
-    with open(filename, 'r') as file:
-        for line in file:
-            data.append(json.loads(line))
-    data_lst = range(501)
-    # only support batch size ==1 now
-    filename = '../../data/raw_data/spider/database/test_data/dev.json'
-    with open(filename) as f:
-        data = json.load(f)
-    for d in tqdm(data[:500]):
-
-        #### generate suitable prompt (data preprocess) for spider dataset
-        db_name = d["db_id"]
-        db_path = f"../../data/raw_data/spider/test_database/{db_name}/{db_name}.sqlite"
-        con = sqlite3.connect(db_path)
-        cursor = con.cursor()
-        cursor.execute('SELECT name FROM sqlite_master WHERE type="table";')
-        curr_table = cursor.fetchall()
-
-        table_rows = {}
-        for table in curr_table:
-            table_name = str(table[0])
-
-            cursor_t = con.execute(f"SELECT * from {table_name}")
-            names = list(map(lambda x: x[0], cursor_t.description))
-            table_rows[table_name] = names
-            cursor_t.close()
-
-        cursor.close()
-        con.close()
-        
-        database_info = "The SQL database has "
-        for k, v in table_rows.items():
-            database_info = database_info + f"table named {k} with columns {v}, "
-
-        prefix= "Could you translate the following question into SQL. Please only generate SQL, don't include explanation in the answer. "
-        prompt = prefix + database_info + "Question: " + d["question"]
-        processed_prompt = build_instruction_prompt(prompt)
-        max_new_tokens = args.max_new_tokens
-        inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-        ar_begin = time.time()
-        ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
-        ar_end = time.time()
-        print(f'ar generated length: {len(ar_generated)}')
-        time_speed_lst, eos_reached = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
-        if eos_reached:
-            jacobian_time_speed.append(*time_speed_lst)
-            ar_time_speed.append(len(ar_generated)/(ar_end - ar_begin))
-        else:
-            continue
-    
-    ar_time_speed = ar_time_speed[1:]
-    jacobian_time_speed = jacobian_time_speed[1:]
-    print(f'ar speed: {ar_time_speed}')
-    print(f'jacobian speed: {jacobian_time_speed}')
-    print(f'The max speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {max(jacobian_time_speed)}')
-    print(f'The min speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {min(jacobian_time_speed)}')
-    print(f'The avg speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {sum(jacobian_time_speed)/len(jacobian_time_speed)}')
-    print(f'The max speed of model {args.test_model_path} using ar is {max(ar_time_speed)}')
-    print(f'The min speed of model {args.test_model_path} using ar is {min(ar_time_speed)}')
-    print(f'The avg speed of model {args.test_model_path} using ar is {sum(ar_time_speed)/len(ar_time_speed)}')
-
-if __name__ == "__main__":  
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--filename", type=str,
-                        default="./test.jsonl")
-    parser.add_argument("--max_new_tokens", type=int, default=16)
-    parser.add_argument("--max_new_seq_len", type=int, default=1024)
-    parser.add_argument("--test_model_path", type=str,
-                        default="llm-model/vicuna-7b-sharegpt-gpt4-48k")
-    args = parser.parse_args() 
-    speed_compare(args)
+    parser.add_argument("--local_rank", type=int, default=0) 
+    parser.add_argument("--model_path", type=str, help="model path", default="meta-llama/Llama-2-7b-chat-hf") #tiiuae/falcon-7b-instruct #"TheBloke/Falcon-180B-Chat-GPTQ" 
+    parser.add_argument("--model_type", type=str, default="llama")
+    parser.add_argument("--cllm_type", type=str, default="sharegpt")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--chat", action="store_true")
+    parser.add_argument("--dtype", type=str, default="float16")
+    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--cache_dir", type=str, default="")
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=16,
+        help="n-token sequence size",
+    )
+    parser.add_argument(
+        "--max_new_seq_len",
+        type=int,
+        default=1024,
+        help="Maximum new tokens to generate per response",
+    )
+    args = parser.parse_args()
+    
+    if args.dtype == "float16":
+        args.dtype = torch.float16
+    elif args.dtype == "bfloat16":
+        args.dtype = torch.bfloat16
+    
+    #if args.use_ds:
+    config = transformers.AutoConfig.from_pretrained(
+        args.model_path,
+        cache_dir=args.cache_dir,
+    )
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        args.model_path,
+        config=config,
+        cache_dir=args.cache_dir,
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        device_map='cuda',
+        attn_implementation="flash_attention_2",
+    )
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        args.model_path,
+        cache_dir=args.cache_dir,
+        model_max_length=2048,
+        padding_side="right",
+    )
 
-    # CUDA_VISIBLE_DEVICES=7 python speedup.py --test_model path_to_cllm --max_new_tokens 16
+    user_input = ""
+    num_rounds = 0
+    if args.model_type == "llama":  
+        roles = ("USER", "ASSISTANT") #support vicuna
+    else:
+        assert False 
+
+    user_input = ""
+    if args.model_type == "llama":  
+        system_prompt = get_system_prompt(args.cllm_type)
+    else:
+        raise NotImplementedError('Only LLaMA or LLaMA2 architecture is supported.')
+
+    while True:
+        num_rounds += 1
+        if args.chat:
+            model_input = input("USER: ")
+        else:
+            model_input = get_default_question(args.cllm_type)
+            print("USER: " + model_input)
+
+        new_inputs = get_instruction_template(system_prompt, roles, model_input)
+        user_input += new_inputs
+
+        print("ASSISTANT: " , flush=True, end="")
+        inputs = tokenizer(user_input, return_tensors="pt").to(args.device)
+
+        if not args.chat:
+            tmp_greedy_output, _ = jacobi_generate(inputs, model, tokenizer, args.max_new_tokens, args.max_new_seq_len) #warmup
+
+        os.environ["CHAT"] = "1"
+        t0 = time.time()
+        greedy_output, avg_fast_forwward_count = jacobi_generate(inputs, model, tokenizer, args.max_new_tokens, args.max_new_seq_len)
+        
+        t1 = time.time()
+        
+        os.environ["CHAT"] = "0"
+        output = tokenizer.decode(greedy_output[0], skip_special_tokens=False)
+
+        # re-initialize user input
+        # TODO: support multi-turn conversation
+        user_input = ""
+        
+        if args.debug:
+            generated_tokens = len(greedy_output[0]) - inputs.input_ids.numel()
+            print()
+            print("======================================SUMMARY=======================================================")
+            print("Generated tokens: ", generated_tokens,"Time: ", round(t1 - t0, 2), "s Throughput: ", round(generated_tokens / (t1 - t0), 2), "tokens/s", "Fast forwarding: ", round(avg_fast_forwward_count, 2), "tokens/step")
+            print("====================================================================================================")
+        if not args.chat:
+            break
+

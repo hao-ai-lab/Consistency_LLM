@@ -32,8 +32,6 @@ def delete_false_key_value(
             self.key_cache[layer_idx] = self.key_cache[layer_idx][..., :-num_of_false_tokens, :]
             self.value_cache[layer_idx] = self.value_cache[layer_idx][..., :-num_of_false_tokens, :]
 
-DynamicCache.delete_false_key_value = delete_false_key_value
-
 @torch.inference_mode()
 def jacobi_forward(
     self,
@@ -45,7 +43,6 @@ def jacobi_forward(
     max_new_tokens: Optional[int] = None,
     prefill_phase: Optional[bool] = False,
 ):
-    
     assert use_cache == True
 
     if input_ids is not None:
@@ -201,122 +198,3 @@ def jacobi_forward(
             next_point = next_point[0, fast_forward_cnt:].view(1,-1) # only false tokens should be re-generated
 
         return accurate_n_gram, first_correct_token
-        
-
-LlamaForCausalLM.jacobi_forward = jacobi_forward
-
-def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
-
-    prompt_len = torch.sum(inputs['attention_mask'], dim=-1)
-    generation = inputs['input_ids']
-    ### prefill the kv-cache
-    past_key_values, first_correct_token = model.jacobi_forward(input_ids=inputs['input_ids'], max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True)
-    ### generation phase
-    itr = 0
-    eos_reached = False
-    while True:
-        itr+=1
-        bsz = 1 # only support batch_size = 1 now
-        # randomly initialize the first point of jacobian trajectory
-        random_point = torch.tensor(random.choices(generation[0], k=(max_new_tokens-1)), device="cuda").view(1,-1)
-        input_ids = torch.cat((first_correct_token.view(1,-1), random_point),dim=-1)
-        n_gram_generation, first_correct_token = model.jacobi_forward(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False)
-        eos_positions = torch.where(n_gram_generation[0]==tokenizer.eos_token_id)[0]
-        if len(eos_positions)>0:
-            eos_reached = True
-        
-        ### see if next max_new_tokens should be generated & if True, update weights and prepare new input_id 
-        generation = torch.cat((generation, n_gram_generation), dim=-1)
-
-        if eos_reached or itr*max_new_tokens > max_new_seq_len:
-            break
-
-    return generation[0, prompt_len:]
-
-
-def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len):
-
-    time_speed = []
-    eos_reached = False
-    inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-    t1 = time.time() 
-    jacobi_generation = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
-    t2 = time.time()
-    t = t2-t1
-    # prompt_token_len = torch.sum(inputs['attention_mask'], dim=-1)
-    eos_positions = torch.where(jacobi_generation==tokenizer.eos_token_id)[0]
-    if len(eos_positions)>0:
-        eos_reached = True
-        total_generation_len = jacobi_generation[:int(eos_positions[0])].shape[0]
-        time_speed.append(total_generation_len/t)
-    else:
-        eos_reached = False
-
-    return time_speed, eos_reached
-    
-
-def speed_compare(args):
-
-    # Load model and tokenizer
-    model = transformers.LlamaForCausalLM.from_pretrained(args.test_model_path, low_cpu_mem_usage=True, device_map='auto', 
-                                             torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.teacher_model_path,
-        padding_side="right",
-        use_fast=False,
-    )
-    ##### compare speed of jacobian and ar #####
-    ar_time_speed = []
-    jacobian_time_speed = []
-    filename = args.filename
-    filename = args.filename
-    with open(filename) as f:
-        data = json.load(f)
-    data_lst = range(501)
-    # only support batch size ==1 now
-    for i in tqdm(data_lst): 
-        d = data[i]
-        if len(d["conversations"]) > 2:
-            continue
-        prompt = d["conversations"][0]["value"]
-        conv = get_conversation_template('vicuna-7b-v1.5')
-        conv.append_message(conv.roles[0], prompt)
-        conv.append_message(conv.roles[1], "")
-        prompt_with_template = conv.get_prompt()
-        processed_prompt = prompt_with_template
-        max_new_tokens = args.max_new_tokens
-        inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-        ar_begin = time.time()
-        ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
-        ar_end = time.time()
-        print(f'ar generated length: {len(ar_generated)}')
-        time_speed_lst, eos_reached = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
-        if eos_reached:
-            jacobian_time_speed.append(*time_speed_lst)
-            ar_time_speed.append(len(ar_generated)/(ar_end - ar_begin))
-        else:
-            continue
-    
-    ar_time_speed = ar_time_speed[1:]
-    jacobian_time_speed = jacobian_time_speed[1:]
-    print(f'ar speed: {ar_time_speed}')
-    print(f'jacobian speed: {jacobian_time_speed}')
-    print(f'The max speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {max(jacobian_time_speed)}')
-    print(f'The min speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {min(jacobian_time_speed)}')
-    print(f'The avg speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {sum(jacobian_time_speed)/len(jacobian_time_speed)}')
-    print(f'The max speed of model {args.test_model_path} using ar is {max(ar_time_speed)}')
-    print(f'The min speed of model {args.test_model_path} using ar is {min(ar_time_speed)}')
-    print(f'The avg speed of model {args.test_model_path} using ar is {sum(ar_time_speed)/len(ar_time_speed)}')
-
-if __name__ == "__main__":  
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--filename", type=str,
-                        default="./test.jsonl")
-    parser.add_argument("--max_new_tokens", type=int, default=16)
-    parser.add_argument("--max_new_seq_len", type=int, default=1024)
-    parser.add_argument("--test_model_path", type=str,
-                        default="llm-model/vicuna-7b-sharegpt-gpt4-48k")
-    args = parser.parse_args() 
-    speed_compare(args)
-
-    # CUDA_VISIBLE_DEVICES=7 python speedup.py --test_model path_to_cllm --filename path_to_another_sharegpt_dataset_for_test --max_new_tokens 16

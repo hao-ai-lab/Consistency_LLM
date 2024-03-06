@@ -20,7 +20,7 @@ This implies numerous advantages of CLLMs:
 Empirical results have shown the effectiveness of CLLMs.
 <p align="center">
   <picture>
-  <img src="cllm_speedup.png" width="45%">
+  <img src="assets/img/cllm_speedup.png" width="45%">
   </picture>
 </p>
 
