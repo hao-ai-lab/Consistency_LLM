@@ -1,4 +1,7 @@
 # Consistency Large Language Models: A Family of Efficient Parallel Decoders
+
+<img src="assets/img/logo.png" alt="CLLM" width="220" align="left"><div align="center"><h1>&nbsp;CLLMs: Consistency Large Language Models</h1></div>
+
 <p align="center">
 | <a href="http://arxiv.org/abs/2403.00835"><b>Paper</b></a> | <a href="https://hao-ai-lab.github.io/blogs/cllm/"><b>Blog</b></a> |
 </p>
@@ -16,6 +19,8 @@
 </p>
 
 ##
+
+Consistency large language models (CLLMs) is a new family of models capable of reducing inference latency by efficiently decoding $n$ tokens in parallel. This decoding method is called [Jacobi decoding](https://arxiv.org/abs/2305.10427), which improves inference efficiency by breaking the sequential nature of conventional auto-regressive (AR) decoding. CLLMs are trained with the objective of performing efficient Jacobi decoding by mapping any randomly initialized $n$-token sequence to the same result as AR decoding in as few steps as possible.
 
 Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\times$ to $3.4\times$ improvements in generation speed on a vriety of tasks. 
 <p align="center">
