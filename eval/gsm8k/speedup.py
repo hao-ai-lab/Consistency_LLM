@@ -23,7 +23,8 @@ from transformers.modeling_attn_mask_utils import (
 from transformers import LlamaModel,LlamaForCausalLM
 import argparse
 
-from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward, jacobi_forward_profiling, detect_repetitive_patterns
+from cllm.cllm_utils import detect_repetitive_patterns
+from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward, jacobi_forward_profiling
 
 DynamicCache.delete_false_key_value = delete_false_key_value
 LlamaForCausalLM.jacobi_forward = jacobi_forward
