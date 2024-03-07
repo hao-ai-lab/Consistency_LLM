@@ -70,13 +70,13 @@ conda activate cllm
 ```
 2. Clone this repository and build from source:
 ```
-git clone git@github.com:snyhlxde1/Consistency_LLM.git
+git clone git@github.com:hao-ai-lab/Consistency_LLM.git
 cd Consistency_LLM
 ```
 3. Install dependency:
 ```
 pip install -r requirements.txt
-pip install flash-attn
+pip install flash-attn==2.4.1
 ```
 ## Model Weights
 #### Target Pre-trained Models
