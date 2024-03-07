@@ -251,6 +251,7 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
     past_key_values, first_correct_token = model.jacobi_forward(input_ids=inputs['input_ids'], tokenizer=tokenizer, max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True, chat=chat)
     ### generation phase
     itr = 0
+    global_accurate_length = 0
     eos_reached = False
     while True:
         itr+=1
