@@ -36,7 +36,7 @@ def get_system_prompt(cllm_type):
     else:
         return "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.\n"
 
-def get_instruction_template(system_prompt, roles, model_input):
+def get_instruction_template(system_prompt, roles, model_input, cllm_type):
     if cllm_type == 'sharegpt':
         return system_prompt + f"{roles[0]}: " + f"{model_input}\n{roles[1]}: "
     if cllm_type == 'spider' or 'python':

@@ -348,7 +348,7 @@ if __name__ == "__main__":
             model_input = get_default_question(args.cllm_type)
             print("USER: " + model_input)
 
-        new_inputs = get_instruction_template(system_prompt, roles, model_input)
+        new_inputs = get_instruction_template(system_prompt, roles, model_input, args.cllm_type)
         user_input += new_inputs
 
         print("ASSISTANT: " , flush=True, end="")
