@@ -122,7 +122,7 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_pat
 
 2. Train a CLLM:
 ```
-bash scripts/generate_trajectory.sh {model_path} {trajectory_file} {output_path} {n_token_seq_size}
+bash scripts/train_cllm.sh {model_path} {trajectory_file} {output_path} {n_token_seq_size}
 ```
 
 ### Evaluation
