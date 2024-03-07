@@ -18,7 +18,6 @@ import numpy as np
 
 from cllm.utils import jacobian_generated_data_postprocessed
 
-####### Preprocessing spider dataset #######
 IGNORE_INDEX = -100
 EOT_TOKEN = "<|EOT|>"
 
@@ -325,7 +324,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename", type=str,
-                        default="data/raw_data/sharegpt_20230521_2k_clean_lang_split_identity_gpt4.json")
+                        default="data/raw_data/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json")
     parser.add_argument("--max_new_tokens", type=int, default=16)
     parser.add_argument("--max_new_seq_len", type=int, default=512)
     parser.add_argument("--model", type=str,
