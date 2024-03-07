@@ -309,7 +309,7 @@ def speed_compare(args):
 if __name__ == "__main__":  
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename", type=str,
-                        default="./test.jsonl")
+                        default="eval/gsm8k/test.jsonl")
     parser.add_argument("--max_new_tokens", type=int, default=16)
     parser.add_argument("--max_new_seq_len", type=int, default=1024)
     parser.add_argument("--test_model_path", type=str,
