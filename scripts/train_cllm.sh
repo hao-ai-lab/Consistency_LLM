@@ -9,7 +9,7 @@ n_token_seq_size=$4
 torchrun --nnodes=1 --nproc_per_node=8 --rdzv_id=101 --rdzv_endpoint='localhost:5666' \
     --master_port 10000 \
     cllm/train_cllm_global.py \
-    --target ${model_path} \
+    --target_model_path ${model_path} \
     --data_path ${trajectory_file} \
     --output_dir ${output_path} \
     --max_new_tokens ${n_token_seq_size} \
