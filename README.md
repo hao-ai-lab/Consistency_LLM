@@ -1,4 +1,8 @@
-<img src="assets/img/logo.png" alt="CLLM" width="220" align="left"><div align="center"><h1>&nbsp;Consistency Large Language Models: A Family of Efficient Parallel Decoders</h1></div>
+<p align="center">
+<img src="assets/img/logo.png" alt="CLLM" width="220" align="center">
+</p>
+
+<div align="center"><h1>&nbsp;Consistency Large Language Models: A Family of Efficient Parallel Decoders</h1></div>
 
 <p align="center">
 | <a href="http://arxiv.org/abs/2403.00835"><b>Paper</b></a> | <a href="https://hao-ai-lab.github.io/blogs/cllm/"><b>Blog</b></a> |
