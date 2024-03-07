@@ -129,8 +129,10 @@ bash scripts/train_cllm.sh {model_path} {trajectory_file} {output_path} {n_token
 ### Evaluation
 We follow the same settings in [human-eval](https://github.com/openai/human-eval), [Spider](https://github.com/taoyds/spider), [MT-bench](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge) and [GSM8K](https://github.com/openai/grade-school-math) evaluate CLLMs' generation quality. An example code to evaluate CLLMs' throughput measured in tokens/s, fast-forwarded token count, stationary token count can be found in `eval` folder. Take GSM8K dataset as an example, run:
 ```
-CUDA_VISIBLE_DEVICES=0 bash eval/gsm8k/speedup.sh {model_path} {target_model_path} {max_new_tokens}
+CUDA_VISIBLE_DEVICES=0 bash eval/gsm8k/speedup.sh {test_file_path} {model_path} {target_model_path} {max_new_tokens}
 ```
+Notice `test_file_path` is the path to your local test set.
+
 To test accuracy:
 ```
 cd eval/gsm8k
