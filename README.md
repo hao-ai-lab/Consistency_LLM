@@ -131,12 +131,6 @@ We follow the same settings in [human-eval](https://github.com/openai/human-eval
 ```
 CUDA_VISIBLE_DEVICES=0 bash eval/gsm8k/speedup.sh {model_path} {target_model_path} {max_new_tokens}
 ```
-To test accuracy:
-```
-cd eval/gsm8k
-CUDA_VISIBLE_DEVICES=0 acc.py --model_dir {cllm_model_path} --max_new_tokens_for_consistency 16 --temperature 0.0 --top_p 1.0 \
---output_file_name 'cllm_generated_gsm8k.jsonl' --dev_set "gsm8k" --prompt_type math-single --max_tokens 1024 --use_consistency_decoding
-```
 
 ## Citation
 This is the official project repository for the following paper. If you find this repository helpful, Please kindly cite:
