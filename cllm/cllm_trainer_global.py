@@ -120,7 +120,7 @@ class CllmTrainer(Trainer):
 
     def get_train_dataloader(self):
         # Create custom DataLoader with shuffle set to False
-        shuffle = False if self.mode == "online" else True
+        shuffle = True
         dataloader_params = {
             "batch_size": self.args.per_device_train_batch_size,
             "shuffle": shuffle,
