@@ -104,7 +104,7 @@ def train_tokenize_function_spider(examples, tokenizer):
 
     prompts = []
     for db_name in db_ids:
-        db_path = f"../spider_eval/database/spider/database/{db_name}/{db_name}.sqlite"
+        db_path = f"data/raw_data/spider/database/{db_name}/{db_name}.sqlite"
         con = sqlite3.connect(db_path)
         cursor = con.cursor()
         cursor.execute('SELECT name FROM sqlite_master WHERE type="table";')
