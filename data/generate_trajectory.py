@@ -139,6 +139,26 @@ def train_tokenize_function_spider(examples, tokenizer):
     data_dict = preprocess(sources, targets, tokenizer)
     return data_dict
 
+def preprocess_gsm8k(
+    processed_prompts,
+    answers,
+    tokenizer: transformers.PreTrainedTokenizer,
+) -> Dict:
+    train_dataset = []
+    for processed_prompt, answer in zip(processed_prompts, answers):
+        # Tokenize conversations
+        inputs = tokenizer(
+            processed_prompt,
+            return_tensors="pt",
+        ).input_ids
+        labels_ids = tokenizer(
+            processed_prompt+answer,
+            return_tensors="pt",
+        ).input_ids
+        train_dataset.append(dict(sources_input_ids=inputs, labels_ids=labels_ids))
+
+    return train_dataset
+
 def train_tokenize_function_code_search_net(examples, tokenizer):
     prompt = "Please generate code based on the following doc:\n"
 
