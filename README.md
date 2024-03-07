@@ -27,7 +27,7 @@ Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\ti
   </picture>
 </p>
 
-A demo of using CLLM to achieve significant improvements ($\sim3\times$) in generation speed to solve a basic math problem is shown below:
+A demo of using CLLM to achieve significant improvement ($\sim3\times$) in generation speed to solve a basic math problem is shown below:
 
 <p align="center">
   <picture>
