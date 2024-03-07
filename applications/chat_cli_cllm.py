@@ -12,7 +12,14 @@ from transformers.cache_utils import Cache, DynamicCache
 from transformers import LlamaModel,LlamaForCausalLM
 from transformers.generation import GenerationConfig
 
-from cllm.utils import get_default_question, get_system_prompt, get_instruction_template, delete_false_key_value
+import sys
+from pathlib import Path
+
+path_root = Path(__file__).parents[1]
+sys.path.append(str(path_root))
+
+from cllm.utils import get_default_question, get_system_prompt, get_instruction_template
+from cllm.cllm_llama_modeling import delete_false_key_value
 
 @torch.inference_mode()
 def jacobi_forward(

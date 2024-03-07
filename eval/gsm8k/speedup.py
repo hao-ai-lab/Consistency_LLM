@@ -23,6 +23,12 @@ from transformers.modeling_attn_mask_utils import (
 from transformers import LlamaModel,LlamaForCausalLM
 import argparse
 
+import sys
+from pathlib import Path
+
+path_root = Path(__file__).parents[2]
+sys.path.append(str(path_root))
+
 from cllm.cllm_utils import detect_repetitive_patterns
 from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward, jacobi_forward_profiling
 

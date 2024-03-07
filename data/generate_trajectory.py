@@ -16,6 +16,12 @@ import copy
 
 import numpy as np
 
+import sys
+from pathlib import Path
+
+path_root = Path(__file__).parents[1]
+sys.path.append(str(path_root))
+
 from cllm.utils import jacobian_generated_data_postprocessed
 
 IGNORE_INDEX = -100
