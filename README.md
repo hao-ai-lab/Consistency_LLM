@@ -106,7 +106,7 @@ bash applications/run_chat_cllm.sh {model_path} {cllm_type}
 ### Training
 1. Collect Jacobi trajectory:
 - Method 1: Directly download Jacobi trajectory in hugging face to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
-- Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset ([Spider](https://huggingface.co/datasets/cllm/spider), [GSM8K](https://github.com/openai/grade-school-math/tree/master/grade_school_math/data/train.jsonl) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
+- Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset ([Spider](https://huggingface.co/datasets/cllm/spider) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
 
 For example, for the gsm8k dataset, run:
 ```
@@ -115,7 +115,7 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_pat
 ```
 ##### Other command options
 ```
---filename: path to the raw dataset, currently supporting {spider, code_search_net, data/raw_data/gsm8k_train.jsonl, data/raw_data/ShareGPT_V3_unfiltered_cleaned_split.json} \ 
+--filename: path to the raw dataset, currently supporting {data/raw_data/spider, code_search_net, data/raw_data/gsm8k_train.jsonl, data/raw_data/ShareGPT_V3_unfiltered_cleaned_split.json} \ 
 --data_size: maximum number of prompts used to extract Jacobi trajectories \ 
 --use_aug: use data augmentation technique \
 --use_labels: add dataset's labels to the output file
