@@ -117,7 +117,7 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_pat
 ```
 --filename: path to the raw dataset, currently supporting {spider, code_search_net, data/raw_data/gsm8k_train.jsonl, data/raw_data/ShareGPT_V3_unfiltered_cleaned_split.json} \ 
 --data_size: maximum number of prompts used to extract Jacobi trajectories \ 
---use_aug: use data augmentation technique \ ›
+--use_aug: use data augmentation technique \
 --use_labels: add dataset's labels to the output file
 ```
 
