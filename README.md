@@ -105,7 +105,7 @@ bash applications/run_chat_cllm.sh {model_path} {cllm_type}
 ### Training
 1. Collect Jacobi trajectory:
 - Method 1: Directly download Jacobi trajectory in hugging face to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
-- Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset (e.g. [ShareGPT](https://huggingface.co/datasets/cllm/sharegpt_20230521_2k_clean_lang_split_identity_gpt4), [Spider](https://huggingface.co/datasets/cllm/spider)) to `data/raw_data`. Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
+- Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset (e.g.[Spider](https://huggingface.co/datasets/cllm/spider)) to `data/raw_data`. Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
 
 For example, for the gsm8k dataset, run:
 ```
@@ -114,9 +114,9 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_pat
 ```
 ##### Other command options
 ```
---filename: path to the dataset, currently supporting {spider, python, gsm8k, sharegpt} \ 
+--filename: path to the raw dataset, currently supporting {./data/raw_data/spider, code_search_net, ./data_raw_data/gsm8k_train.jsonl, sharegpt} \ 
 --data_size: maximum number of prompts used to extract Jacobi trajectories \ 
---use_aug: use data augmentation technique \ 
+--use_aug: use data augmentation technique \ ›
 --use_labels: add dataset's labels to the output file
 ```
 
