@@ -27,7 +27,7 @@ Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\ti
   </picture>
 </p>
 
-A demo of using CLLM to achieve significant improvment ($\sim3\times$) in generation speed to solve a basic math problem is shown below:
+A demo of using CLLM to achieve significant improvements ($\sim3\times$) in generation speed to solve a basic math problem is shown below:
 
 <p align="center">
   <picture>
@@ -57,7 +57,7 @@ Compared with existing fast decoding techniques, CLLMs achieve fast parallel dec
 - Draft models
 - Architectural modifications/auxiliary model components
 
-This introduces a number advantages for CLLMs:
+This introduces a number of advantages for CLLMs:
 - CLLMs don't have to deal with the complexity of obtaining 'good' draft models and managing two different models in a single system.
 - CLLMs share the same architecture with target LLMs and require no additional engineering efforts when adopting the technique to different models.
 - CLLMs can be integrated seamlessly with other techniques for efficient LLM inference (e.g. Lookahead Decoding) to achieve even more significant speedup.
@@ -126,7 +126,7 @@ bash scripts/generate_trajectory.sh {model_path} {trajectory_file} {output_path}
 ```
 
 ### Evaluation
-We follow the same settings in [human-eval](https://github.com/openai/human-eval), [Spider](https://github.com/taoyds/spider), [MT-bench](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge) and [GSM8K](https://github.com/openai/grade-school-math) evaluate CLLMs' generation quality. An example code to evaluate CLLMs' throughput measured in tokens/s, fast-forwarded token count, stationary token count can be found in `eval` folder. Take GSM8K dataset as the example, run:
+We follow the same settings in [human-eval](https://github.com/openai/human-eval), [Spider](https://github.com/taoyds/spider), [MT-bench](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge) and [GSM8K](https://github.com/openai/grade-school-math) evaluate CLLMs' generation quality. An example code to evaluate CLLMs' throughput measured in tokens/s, fast-forwarded token count, stationary token count can be found in `eval` folder. Take GSM8K dataset as an example, run:
 ```
 CUDA_VISIBLE_DEVICES=0 bash eval/gsm8k/speedup.sh {model_path} {target_model_path} {max_new_tokens}
 ```
