@@ -81,7 +81,7 @@ pip install flash-attn==2.4.1
 ## Model Weights
 #### Target Pre-trained Models
 
-| Size | Dataset |  Hugging Face Repo                             |
+| Size | Dataset |  Huggingface Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/vicuna-7b-sharegpt-gpt4-48k](https://huggingface.co/cllm/vicuna-7b-sharegpt-gpt4-48k)   |
 | 7B  | GSM8K | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
@@ -89,7 +89,7 @@ pip install flash-attn==2.4.1
 | 7B  | Code-Search-Net Python | [cllm/deepseekcoder_7b_codesearch_net_python](https://huggingface.co/cllm/deepseekcoder_7b_codesearch_net_python) |
 
 #### CLLMs
-| Size | Dataset |  Hugging Face Repo                             |
+| Size | Dataset |  Huggingface Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/consistency-llm-7b-sharegpt48k](https://huggingface.co/cllm/consistency-llm-7b-sharegpt48k)   |
 | 7B  | GSM8K | [cllm/consistency-llm-7b-gsm8k](https://huggingface.co/cllm/consistency-llm-7b-gsm8k) |
@@ -105,7 +105,7 @@ bash applications/run_chat_cllm.sh {model_path} {cllm_type}
 
 ### Training
 1. Collect Jacobi trajectory:
-- Method 1: Directly download Jacobi trajectory in hugging face to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
+- Method 1: Directly download Jacobi trajectory to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
 - Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset ([Spider](https://huggingface.co/datasets/cllm/spider) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
 
 For example, for the gsm8k dataset, run:

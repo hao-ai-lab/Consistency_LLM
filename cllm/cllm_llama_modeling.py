@@ -36,12 +36,14 @@ def delete_false_key_value(
 def jacobi_forward(
     self,
     input_ids: torch.LongTensor = None,
+    tokenizer=None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
     past_key_values: Optional[List[torch.FloatTensor]] = None,
     use_cache: Optional[bool] = None,
     max_new_tokens: Optional[int] = None,
     prefill_phase: Optional[bool] = False,
+    chat: Optional[bool] = False,
 ):
     assert use_cache == True
 
@@ -113,14 +115,22 @@ def jacobi_forward(
             logits = self.lm_head(hidden_states)
         logits = logits.float()
 
-        predict_next_tokens = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
+        predict_next_tokens = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.001,  dim=-1)
         first_correct_token = predict_next_tokens[:, -1]
         return next_decoder_cache, first_correct_token
     else: # generation phase, input as random_initilized point and output as fixed point
+        jacobian_trajectory = []
         accurate_n_gram = torch.zeros_like(input_ids).to(input_ids.device)
         accurate_length = 0
+
         next_point = input_ids
+        jacobian_trajectory.append(next_point)
+
+        iter_counter = 0
+
+        prev_len = 0
         while True:
+
             current_point = next_point
             inputs_embeds = self.model.embed_tokens(current_point)
             attention_mask = None
@@ -181,22 +191,54 @@ def jacobi_forward(
                 logits = self.lm_head(hidden_states)
 
             logits = logits.float()
-            all_shift_one_token = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)
-            next_point= torch.cat((current_point[0, 0].view(1,-1), all_shift_one_token[0, :seq_length-1].view(1,-1)), dim=-1)
+            all_shift_one_token = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.001, dim=-1)
+
+            next_point = torch.cat((current_point[0, 0].view(1,-1), all_shift_one_token[0, :seq_length-1].view(1,-1)), dim=-1)
+
             first_false_index = torch.where(torch.eq(current_point[0], next_point[0]) == False)[0]
+            
+            jacobian_trajectory.append(next_point)
+
             if len(first_false_index) > 0:
                 fast_forward_cnt = first_false_index[0].item()
+
                 past_key_values.delete_false_key_value(seq_length - fast_forward_cnt) # delete the false keys & values
             else:
                 fast_forward_cnt = torch.sum(torch.eq(current_point, next_point)).item()
+
                 accurate_n_gram[0, accurate_length : accurate_length + fast_forward_cnt] = next_point[0, :fast_forward_cnt]         
                 first_correct_token = all_shift_one_token[:,-1]   
+                if chat:
+                    if tokenizer.eos_token_id in accurate_n_gram[0, :accurate_length + fast_forward_cnt]:
+                        eos_positions = torch.where(accurate_n_gram[0]==tokenizer.eos_token_id)[0]
+                        eos_position = eos_positions[0]
+                        generated_str = tokenizer.decode(accurate_n_gram[0, :eos_position], skip_special_tokens=True)
+                    else:
+                        generated_str = tokenizer.decode(accurate_n_gram[0, :accurate_length + fast_forward_cnt], skip_special_tokens=True)
+
+                    print(generated_str[prev_len:], flush=True, end="")
+                    prev_len = len(generated_str)
                 break 
+
             accurate_n_gram[0, accurate_length : accurate_length + fast_forward_cnt] = next_point[0, :fast_forward_cnt]
             accurate_length += fast_forward_cnt
             next_point = next_point[0, fast_forward_cnt:].view(1,-1) # only false tokens should be re-generated
 
-        return accurate_n_gram, first_correct_token
+            if chat:
+                if tokenizer.eos_token_id in accurate_n_gram[0, :accurate_length]:
+                    eos_positions = torch.where(accurate_n_gram[0]==tokenizer.eos_token_id)[0]
+                    eos_position = eos_positions[0]
+
+                    generated_str = tokenizer.decode(accurate_n_gram[0, :eos_position], skip_special_tokens=True)
+                else:
+                    generated_str = tokenizer.decode(accurate_n_gram[0, :accurate_length], skip_special_tokens=True)
+
+                print(generated_str[prev_len:], flush=True, end="")
+                prev_len = len(generated_str)
+
+            iter_counter += 1
+
+        return accurate_n_gram, first_correct_token, iter_counter, accurate_length
 
 
 @torch.inference_mode()
