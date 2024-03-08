@@ -20,6 +20,8 @@ from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
+
+import torch.nn.functional as F
 from transformers import LlamaModel,LlamaForCausalLM
 import argparse
 
