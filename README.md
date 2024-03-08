@@ -24,7 +24,7 @@
 
 Consistency large language models (CLLMs) is a new family of models capable of reducing inference latency by efficiently decoding $n$ tokens in parallel. This decoding method is called [Jacobi decoding](https://arxiv.org/abs/2305.10427), which improves inference efficiency by breaking the sequential nature of conventional auto-regressive (AR) decoding. CLLMs are trained with the objective of performing efficient Jacobi decoding by mapping any randomly initialized $n$-token sequence to the same result as AR decoding in as few steps as possible.
 
-Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\times$ to $3.4\times$ improvements in generation speed on a vriety of tasks. 
+Experiment results have demonstrated the effectiveness of CLLMs, showing $2.4\times$ to $3.4\times$ improvements in generation speed on a variety of tasks. 
 <p align="center">
   <picture>
   <img src="assets/img/cllm_speedup.png" width="45%">
