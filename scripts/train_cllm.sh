@@ -25,7 +25,7 @@ torchrun --nnodes=1 --nproc_per_node=8 --rdzv_id=101 --rdzv_endpoint='localhost:
     --evaluation_strategy "epoch" \
     --save_strategy "steps" \
     --save_steps 100 \
-    --save_total_limit 1 \
+    --save_total_limit 50 \
     --learning_rate 2e-5 \
     --weight_decay 0. \
     --warmup_ratio 0.03 \
