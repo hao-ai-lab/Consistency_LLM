@@ -47,7 +47,7 @@ class CllmTrainer(Trainer):
 
         ### compute AutoRegression loss ###
         # use labels to avoid pattern collapse
-        labels = inputs['teacher_output_ids']
+        labels = inputs['complete_teacher_output_ids']
         # TODO: check if it's right when batch size > 1
         labels = torch.tensor(labels).to(model.device)
         attention_mask = torch.full_like(labels, 1).to(model.device)
