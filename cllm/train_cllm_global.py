@@ -92,6 +92,7 @@ def preprocess_distill_data(
     prompt_ids,
     answer_trajectory_ids,
     teacher_output_ids,
+    complete_teacher_output_ids,
     tokenizer: transformers.PreTrainedTokenizer,
     model: str,
     labels_ids=None,
@@ -102,11 +103,17 @@ def preprocess_distill_data(
     # TODO: support bsz > 1 from the generation script. for now, only prompt ids is in (bsz, seq_len)
     jacobian_prompt_ids = torch.tensor(prompt_ids[0], dtype=torch.int64)
     teacher_output_ids = torch.tensor(teacher_output_ids[0], dtype=torch.int64)
+    complete_teacher_output_ids = torch.tensor(complete_teacher_output_ids, dtype=torch.int64)
     for answer_ids in answer_trajectory_ids:
         answer_ids = torch.tensor(answer_ids, dtype=torch.int)
         #print(answer_ids)
         #print(jacobian_prompt_ids)
-        trajectory_ids = torch.cat((jacobian_prompt_ids, answer_ids), dim=-1)
+        if len(jacobian_prompt_ids.shape) == len(answer_ids.shape):
+            trajectory_ids = torch.cat((jacobian_prompt_ids, answer_ids), dim=-1)
+        elif len(jacobian_prompt_ids.shape) > len(answer_ids.shape):
+            #print(f'prompt: {jacobian_prompt_ids.shape}')
+            #print(f'answer: {answer_ids.shape}')
+            trajectory_ids = torch.cat((jacobian_prompt_ids[0], answer_ids), dim=-1)
         # print(trajectory_ids.shape) # torch.Size([228])
         jacobian_trajectory_ids.append(trajectory_ids)
    
@@ -115,13 +122,15 @@ def preprocess_distill_data(
             jacobian_trajectory=jacobian_trajectory_ids,
             attention_mask=jacobian_trajectory_ids[0].ne(tokenizer.pad_token_id),
             labels_ids=labels_ids,
-            teacher_output_ids=teacher_output_ids
+            teacher_output_ids=teacher_output_ids,
+            complete_teacher_output_ids=complete_teacher_output_ids
         )
     else:
         return dict(
             jacobian_trajectory=jacobian_trajectory_ids,
             attention_mask=jacobian_trajectory_ids[0].ne(tokenizer.pad_token_id),
-            teacher_output_ids=teacher_output_ids
+            teacher_output_ids=teacher_output_ids,
+            complete_teacher_output_ids=complete_teacher_output_ids
         )
     
 class JacobianDataset(Dataset):
@@ -152,6 +161,7 @@ class JacobianDataset(Dataset):
             ret = preprocess_distill_data(self.raw_data[i]["prompt_ids"],
                          self.raw_data[i]["answer_trajectory_ids"],
                          self.raw_data[i]["teacher_output_ids"],
+                         self.raw_data[i]["complete_teacher_output_ids"],
                          self.tokenizer,
                          self.model,
                          labels_ids=self.raw_data[i]["labels_ids"])
@@ -159,6 +169,7 @@ class JacobianDataset(Dataset):
             ret = preprocess_distill_data(self.raw_data[i]["prompt_ids"],
                          self.raw_data[i]["answer_trajectory_ids"],
                          self.raw_data[i]["teacher_output_ids"],
+                         self.raw_data[i]["complete_teacher_output_ids"],
                          self.tokenizer,
                          self.model)
         self.cached_data_dict[i] = ret
