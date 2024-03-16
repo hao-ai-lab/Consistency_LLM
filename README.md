@@ -52,7 +52,7 @@ A demo of using CLLM to achieve significant improvements ($\sim3\times$) in gene
 
 ## News 🔥
 
-- [2024/3] CLLMs are integrated in [FastChat](https://github.com/lm-sys/FastChat/blob/main/docs/model_support.md) for fast inference!
+- [2024/3] CLLMs are integrated in [FastChat](https://github.com/lm-sys/FastChat/blob/main/docs/model_support.md)!
 - [2024/2] CLLM Paper now available on [arXiv](http://arxiv.org/abs/2403.00835). CLLMs model checkpoints are released on [Huggingface Hub](https://huggingface.co/cllm).
 
 ## Introduction
