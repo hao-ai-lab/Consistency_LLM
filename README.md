@@ -52,6 +52,7 @@ A demo of using CLLM to achieve significant improvements ($\sim3\times$) in gene
 
 ## News 🔥
 
+- [2024/3] CLLMs are integrated in [FastChat](https://github.com/lm-sys/FastChat/blob/main/docs/model_support.md) for fast inference!
 - [2024/2] CLLM Paper now available on [arXiv](http://arxiv.org/abs/2403.00835). CLLMs model checkpoints are released on [Huggingface Hub](https://huggingface.co/cllm).
 
 ## Introduction
@@ -88,16 +89,16 @@ pip install flash-attn==2.4.1
 | Size | Dataset |  Huggingface Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/vicuna-7b-sharegpt-gpt4-48k](https://huggingface.co/cllm/vicuna-7b-sharegpt-gpt4-48k)   |
-| 7B  | GSM8K | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
-| 7B  | Spider | [cllm/deepseekcoder-7b-instruct-spider](https://huggingface.co/cllm/deepseekcoder-7b-instruct-spider) |
+| 7B  | GSM8K (Math) | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
+| 7B  | Spider (Text-to-SQL) | [cllm/deepseekcoder-7b-instruct-spider](https://huggingface.co/cllm/deepseekcoder-7b-instruct-spider) |
 | 7B  | Code-Search-Net Python | [cllm/deepseekcoder_7b_codesearch_net_python](https://huggingface.co/cllm/deepseekcoder_7b_codesearch_net_python) |
 
 #### CLLMs
 | Size | Dataset |  Huggingface Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/consistency-llm-7b-sharegpt48k](https://huggingface.co/cllm/consistency-llm-7b-sharegpt48k)   |
-| 7B  | GSM8K | [cllm/consistency-llm-7b-gsm8k](https://huggingface.co/cllm/consistency-llm-7b-gsm8k) |
-| 7B  | Spider | [cllm/consistency-llm-7b-spider](https://huggingface.co/cllm/consistency-llm-7b-spider) |
+| 7B  | GSM8K (Math) | [cllm/consistency-llm-7b-math](https://huggingface.co/cllm/consistency-llm-7b-math) |
+| 7B  | Spider (Text-to-SQL) | [cllm/consistency-llm-7b-spider](https://huggingface.co/cllm/consistency-llm-7b-spider) |
 | 7B  | Code-Search-Net Python | [cllm/consistency-llm-7b-codesearchnet](https://huggingface.co/cllm/consistency-llm-7b-codesearchnet) |
 
 ## Usage
