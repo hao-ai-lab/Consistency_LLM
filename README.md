@@ -111,12 +111,12 @@ bash applications/run_chat_cllm.sh {model_path} {cllm_type}
 ### Training
 1. Collect Jacobi trajectory:
 - Method 1: Directly download Jacobi trajectory to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
-- Method 2 (Generate trajectory suitable to your own target model and dataset): Download raw dataset ([Spider](https://huggingface.co/datasets/cllm/spider) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
+- Method 2 (Generate trajectory suitable to your own target model and dataset): Some raw datasets that contain additional information like database dependency or cannot be directly loaded from Huggingface Hub (for example, [Spider](https://huggingface.co/datasets/cllm/spider) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
 
 For example, for the gsm8k dataset, run:
 ```
 # max_new_tokens corresponds to the size of n_token_sequence
-CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_path} {max_new_tokens} {max_new_seq_len}
+CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_path} {n_token_seq_size} {max_new_seq_len}
 ```
 ##### Other command options
 ```
