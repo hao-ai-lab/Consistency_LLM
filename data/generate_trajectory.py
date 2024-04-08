@@ -100,7 +100,9 @@ def preprocess_sharegpt(data, tokenizer):
         labels = tokenizer(prompt_with_template + d["conversations"][1]["value"], return_tensors="pt")['input_ids'][0]
         labels_ids = torch.concat((labels, torch.tensor([tokenizer.eos_token_id])), dim=-1).to(dtype=torch.int)
         
-        train_dataset.append(dict(sources_input_ids=inputs, labels_ids=labels_ids))
+        train_dataset.append(dict(sources_input_ids=inputs, sources_len=[
+            input.ne(tokenizer.pad_token_id).sum().item() for input in inputs], labels_ids=labels_ids))
+        
 
     return train_dataset
 
@@ -160,7 +162,8 @@ def preprocess_gsm8k(
             processed_prompt+answer,
             return_tensors="pt",
         ).input_ids
-        train_dataset.append(dict(sources_input_ids=inputs, labels_ids=labels_ids))
+        train_dataset.append(dict(sources_input_ids=inputs, sources_len=[
+            input.ne(tokenizer.pad_token_id).sum().item() for input in inputs], labels_ids=labels_ids))
 
     return train_dataset
 
@@ -270,7 +273,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
     counter = 0
     new_data = []
 
-    for i in tqdm(prompt_size):
+    for i in tqdm(range(prompt_size)):
         d = train_dataset[i]
         inputs = torch.Tensor(d['sources_input_ids']).unsqueeze(0).to(device=model.device, dtype=torch.int)
 
