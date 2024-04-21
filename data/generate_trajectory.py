@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Sequence
 import copy
-
+import gc
 import numpy as np
 
 import sys
@@ -205,18 +205,38 @@ def get_jacobian_trajectory(
     generate_attention_mask = torch.full_like(next_generation, 1).to(model.device)
     trajectory.append(tokens)
     itr=0
+    genearte_idx = 0
     while True:
-        
         current_generation = next_generation
         logits = model(current_generation, generate_attention_mask).logits
         logits_trajectory.append(logits)
-        next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
-
+        
+        # greedy decoding
+        # next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
+        
+        # top-k sampling
+        topk_k = 2
+        topk_values, topk_indices = torch.topk(torch.nn.functional.softmax(logits, dim=-1) / 0.01, k=topk_k, dim=-1)
+        topk_prob = topk_values / torch.sum(topk_values, dim=-1, keepdim=True)
+        next_tokens = torch.multinomial(topk_prob.view(-1, topk_k), 1).view(bsz, -1)
+        next_generation = torch.gather(topk_indices, -1, next_tokens.unsqueeze(-1)).squeeze(-1)
+        
         # hold prompt unchanged and update generated tokens
         for i in range(bsz):
-            next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], next_generation[i, prompt_len[i]-1:total_len-1]), dim=0)
+            # greedy decoding convergence
+            # next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], next_generation[i, prompt_len[i]-1:total_len-1]), dim=0)
+            
+            # top-k sampling convergence, jump to the next token if the same token is generated
+            compare_start_idx = prompt_len[i]-1 + genearte_idx
+            step = 1
+            while torch.all(torch.eq(current_generation[i, compare_start_idx:compare_start_idx+step], next_generation[i, compare_start_idx:compare_start_idx + step])).item() and compare_start_idx + step < total_len:
+                step += 1
+            genearte_idx += step 
+            next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], current_generation[i, prompt_len[i]-1:min(prompt_len[i]-1+genearte_idx, total_len-1)], next_generation[i, prompt_len[i]-1+genearte_idx:total_len-1]), dim=0)
+
+            
         trajectory.append(next_generation)
-        if torch.all(torch.eq(next_generation, current_generation)).item():
+        if torch.all(torch.eq(next_generation, current_generation)).item() or prompt_len[0]-1+genearte_idx >= total_len-1:
             eos_reached = len(torch.where(trajectory[-1] == tokenizer.eos_token_id)[0])>0
             return trajectory[:-1], logits_trajectory[-1], eos_reached # converged generation is saved twice so we delete the last element of trajectory list
         itr+=1
