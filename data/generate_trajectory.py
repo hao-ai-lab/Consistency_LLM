@@ -13,7 +13,6 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Sequence
 import copy
-import gc
 import numpy as np
 
 import sys
