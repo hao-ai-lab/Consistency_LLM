@@ -212,28 +212,32 @@ def get_jacobian_trajectory(
         logits_trajectory.append(logits)
         
         # greedy decoding
-        # next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
+        next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
+
         
-        # top-k sampling
-        topk_k = 2
-        topk_values, topk_indices = torch.topk(torch.nn.functional.softmax(logits, dim=-1) / 0.01, k=topk_k, dim=-1)
-        topk_prob = topk_values / torch.sum(topk_values, dim=-1, keepdim=True)
-        next_tokens = torch.multinomial(topk_prob.view(-1, topk_k), 1).view(bsz, -1)
-        next_generation = torch.gather(topk_indices, -1, next_tokens.unsqueeze(-1)).squeeze(-1)
+        # # top-k sampling
+        # topk_k = 2
+        # topk_values, topk_indices = torch.topk(torch.nn.functional.softmax(logits, dim=-1) / 0.01, k=topk_k, dim=-1)
+        # topk_prob = topk_values / torch.sum(topk_values, dim=-1, keepdim=True)
+        # next_tokens = torch.multinomial(topk_prob.view(-1, topk_k), 1).view(bsz, -1)
+        # next_generation = torch.gather(topk_indices, -1, next_tokens.unsqueeze(-1)).squeeze(-1)
+        
+        # print("Top-k indice: ", topk_indices[0, prompt_len[0]-1:total_len-1, :])
+        # print("Top-K prob: ", topk_prob[0, prompt_len[0]-1:total_len-1, :])
+        # print("Top-k next_generation: ", next_generation[0, prompt_len[0]-1:total_len-1])
         
         # hold prompt unchanged and update generated tokens
         for i in range(bsz):
             # greedy decoding convergence
-            # next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], next_generation[i, prompt_len[i]-1:total_len-1]), dim=0)
+            next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], next_generation[i, prompt_len[i]-1:total_len-1]), dim=0)
             
             # top-k sampling convergence, jump to the next token if the same token is generated
-            compare_start_idx = prompt_len[i]-1 + genearte_idx
-            step = 1
-            while torch.all(torch.eq(current_generation[i, compare_start_idx:compare_start_idx+step], next_generation[i, compare_start_idx:compare_start_idx + step])).item() and compare_start_idx + step < total_len:
-                step += 1
-            genearte_idx += step 
-            next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], current_generation[i, prompt_len[i]-1:min(prompt_len[i]-1+genearte_idx, total_len-1)], next_generation[i, prompt_len[i]-1+genearte_idx:total_len-1]), dim=0)
-
+            # compare_start_idx = prompt_len[i] + genearte_idx
+            # step = 1
+            # # while genearte_idx != 0 and torch.all(torch.eq(current_generation[i, compare_start_idx:compare_start_idx+step], next_generation[i, compare_start_idx:compare_start_idx + step])).item() and compare_start_idx + step < total_len:
+            # #     step += 1
+            # next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], current_generation[i, prompt_len[i]:min(prompt_len[i]+genearte_idx, total_len-1)], next_generation[i, prompt_len[i]-1+genearte_idx:total_len-1]), dim=0)
+            # genearte_idx += step 
             
         trajectory.append(next_generation)
         if torch.all(torch.eq(next_generation, current_generation)).item() or prompt_len[0]-1+genearte_idx >= total_len-1:
@@ -328,7 +332,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
                     dic["answer_trajectory_ids"].insert(0, aug_trajectory)
 
             if use_labels:
-                dic['labels_ids'] = d['labels_ids']
+                dic['labels_ids'] = d['labels_ids'].tolist()
 
             inputs = jacobian_trajectory_ids[-1]
 
@@ -342,7 +346,8 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
     print('Jacobi trajectory has been collected. Now delete low-quality generation as post processing.')
     save_path = 'data/collected_jacobi_trajectory/'    
     cleaned_data = jacobian_generated_data_postprocessed(new_data, model_path)
-    new_file_name = "cleaned_" + f"{filename.lower()}_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
+    if "gsm8k" in filename.lower():
+        new_file_name = "cleaned_" + f"gsm8k_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
     new_file_path = os.path.join(save_path, new_file_name)
     
     # create directory for a path if it doesn't exist
@@ -363,6 +368,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_size", default=5000)
     parser.add_argument("--use_aug", default=True)
     parser.add_argument("--use_labels", default=True)
+    parser.add_argument("--cuda_number", default=True)
     args = parser.parse_args()
     filename = args.filename
     model_path = args.model
