@@ -29,7 +29,7 @@ from pathlib import Path
 path_root = Path(__file__).parents[2]
 sys.path.append(str(path_root))
 
-from cllm.cllm_utils import detect_repetitive_patterns
+from cllm.utils import detect_repetitive_patterns
 from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward, jacobi_forward_profiling
 
 DynamicCache.delete_false_key_value = delete_false_key_value
@@ -314,6 +314,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_seq_len", type=int, default=1024)
     parser.add_argument("--test_model_path", type=str,
                         default="models/vicuna-7b-sharegpt-gpt4-48k")
+    parser.add_argument("--teacher_model_path", type=str,
+                        default="cllm/consistency-llm-7b-sharegpt48k")
     parser.add_argument("--data_size", type=str,
                         default=500)
     args = parser.parse_args() 
