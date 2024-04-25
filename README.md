@@ -18,6 +18,9 @@
   <a href="https://github.com/hao-ai-lab/Consistency_LLM/pulls">
     <img src="https://img.shields.io/badge/Contributions-welcome-brightgreen.svg?style=flat" alt="Contributions welcome">
   </a>
+  <a href="https://huggingface.co/cllm">
+    <img src="https://img.shields.io/badge/Weights-CLLMs-yellow.svg" alt="Weights">
+  </a>
 </p>
 
 ##
