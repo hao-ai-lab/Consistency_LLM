@@ -403,8 +403,8 @@ def jacobi_forward_profiling(
             jacobian_trajectory.append(next_point)
             
             if torch.all(torch.eq(current_point, next_point)).item():    
-                print('Successfully break!')
-                print(next_point)
+                #print('Successfully break!')
+                #print(next_point)
                 first_correct_token = torch.argmax(torch.nn.functional.softmax(logits, dim=-1), dim=-1)[:,-1]
                 break
             past_key_values.delete_false_key_value(seq_length)
