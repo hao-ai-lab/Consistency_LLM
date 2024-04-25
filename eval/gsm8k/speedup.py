@@ -20,8 +20,10 @@ from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
-from transformers import LlamaModel,LlamaForCausalLM
+from transformers import LlamaModel, LlamaForCausalLM, GenerationConfig
 import argparse
+
+import os
 
 import sys
 from pathlib import Path
@@ -29,11 +31,11 @@ from pathlib import Path
 path_root = Path(__file__).parents[2]
 sys.path.append(str(path_root))
 
-from cllm.cllm_utils import detect_repetitive_patterns
-from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward, jacobi_forward_profiling
+from cllm.utils import detect_repetitive_patterns
+from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward_profiling
 
 DynamicCache.delete_false_key_value = delete_false_key_value
-LlamaForCausalLM.jacobi_forward = jacobi_forward
+LlamaForCausalLM.jacobi_forward = jacobi_forward_profiling
 
 def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
     converge_step = []
@@ -107,6 +109,7 @@ def speed_compare(args):
         use_fast=False,
     )
     ##### compare speed of jacobian and ar #####
+    converge_step = []
     ar_time_speed = []
     jacobian_time_speed = []
     filename = args.filename
@@ -128,7 +131,7 @@ def speed_compare(args):
         ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
         ar_end = time.time()
         print(f'ar generated length: {len(ar_generated)}')
-        eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len)
+        eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
         
         if not detect_repetitive_patterns(tokenizer, decoded_ids, repeat_ngram_size=10):
             per_request_meta_trajectory_records.append(all_jacobian_trajectory)
@@ -147,7 +150,7 @@ def speed_compare(args):
             ar_end.record()
             torch.cuda.synchronize()
             
-            print(ar_generated)
+            #print(ar_generated)
             print(f'ar generated length: {len(ar_generated)}')
             ar_time = ar_begin.elapsed_time(ar_end) / 1000
             print(f'ar time: {len(ar_generated)/(ar_time)}')
@@ -166,14 +169,14 @@ def speed_compare(args):
 
         fix_points_metrics = 0
 
-        effective_trajectory_length = training_args.max_new_tokens
+        effective_trajectory_length = args.max_new_tokens
         # iterate over all n-grams, across the sequence length dimension
         # last trajectory contains eos, we need to keep track
         last_traj_flag = False
         for n_gram_id in range(len(all_generation_trajectory)):
             # initialize fix_points_tracker
             fix_points_tracker = {}
-            for pos_ind in range(training_args.max_new_tokens):
+            for pos_ind in range(args.max_new_tokens):
                 # to track how many times right token is predicted right
                 fix_points_tracker[pos_ind] = 0
 
@@ -198,7 +201,7 @@ def speed_compare(args):
                     continue
                 if eos_reached == True:
                     break
-                assert len(generation_ids[0]) == training_args.max_new_tokens
+                assert len(generation_ids[0]) == args.max_new_tokens
 
                 # iterate over all tokens
                 fast_forward_cnt = 0
@@ -288,8 +291,10 @@ def speed_compare(args):
     print(f"global average fix-point per gram cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points_per_gram'])}")
     
     save_path = 'data/speedup_profiling_results/'
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
-    new_file_path= f'gsm8k_speedup_profiling_results_{training_args.max_new_tokens}_{training_args.max_new_seq_len}_{training_args.data_size}_stats.json'
+    new_file_path= f'gsm8k_speedup_profiling_results_{args.max_new_tokens}_{args.max_new_seq_len}_{args.data_size}_stats.json'
     fast_forward_and_fix_points_statistics_file = os.path.join(save_path, new_file_path)
 
     with open(fast_forward_and_fix_points_statistics_file, 'w') as f:
@@ -309,11 +314,13 @@ def speed_compare(args):
 if __name__ == "__main__":  
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename", type=str,
-                        default="./test.jsonl")
+                        default="eval/gsm8k/test.jsonl")
     parser.add_argument("--max_new_tokens", type=int, default=16)
     parser.add_argument("--max_new_seq_len", type=int, default=1024)
     parser.add_argument("--test_model_path", type=str,
                         default="models/vicuna-7b-sharegpt-gpt4-48k")
+    parser.add_argument("--teacher_model_path", type=str,
+                        default="cllm/consistency-llm-7b-sharegpt48k")
     parser.add_argument("--data_size", type=str,
                         default=500)
     args = parser.parse_args() 
