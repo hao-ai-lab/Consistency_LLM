@@ -121,7 +121,7 @@ def speed_compare(args):
     per_request_meta_trajectory_records = []
     data_lst = range(args.data_size)
     # only support batch size ==1 now
-    for i in tqdm(range(data_lst)): 
+    for i in tqdm(data_lst): 
         d = data[i]
         prompt_mapping = "Question:\n{input}\nAnswer:\nLet's think step by step.\n"
         processed_prompt = prompt_mapping.format(input=d['question'])
