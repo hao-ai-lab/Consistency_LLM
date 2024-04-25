@@ -212,32 +212,28 @@ def get_jacobian_trajectory(
         logits_trajectory.append(logits)
         
         # greedy decoding
-        next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
+        # next_generation = torch.argmax(torch.nn.functional.softmax(logits, dim=-1) / 0.01, dim=-1)
 
         
         # # top-k sampling
-        # topk_k = 2
-        # topk_values, topk_indices = torch.topk(torch.nn.functional.softmax(logits, dim=-1) / 0.01, k=topk_k, dim=-1)
-        # topk_prob = topk_values / torch.sum(topk_values, dim=-1, keepdim=True)
-        # next_tokens = torch.multinomial(topk_prob.view(-1, topk_k), 1).view(bsz, -1)
-        # next_generation = torch.gather(topk_indices, -1, next_tokens.unsqueeze(-1)).squeeze(-1)
-        
-        # print("Top-k indice: ", topk_indices[0, prompt_len[0]-1:total_len-1, :])
-        # print("Top-K prob: ", topk_prob[0, prompt_len[0]-1:total_len-1, :])
-        # print("Top-k next_generation: ", next_generation[0, prompt_len[0]-1:total_len-1])
+        topk_k = 2
+        topk_values, topk_indices = torch.topk(torch.nn.functional.softmax(logits, dim=-1) / 0.01, k=topk_k, dim=-1)
+        topk_prob = topk_values / torch.sum(topk_values, dim=-1, keepdim=True)
+        next_tokens = torch.multinomial(topk_prob.view(-1, topk_k), 1).view(bsz, -1)
+        next_generation = torch.gather(topk_indices, -1, next_tokens.unsqueeze(-1)).squeeze(-1)
         
         # hold prompt unchanged and update generated tokens
         for i in range(bsz):
             # greedy decoding convergence
-            next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], next_generation[i, prompt_len[i]-1:total_len-1]), dim=0)
+            # next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], next_generation[i, prompt_len[i]-1:total_len-1]), dim=0)
             
             # top-k sampling convergence, jump to the next token if the same token is generated
-            # compare_start_idx = prompt_len[i] + genearte_idx
-            # step = 1
-            # # while genearte_idx != 0 and torch.all(torch.eq(current_generation[i, compare_start_idx:compare_start_idx+step], next_generation[i, compare_start_idx:compare_start_idx + step])).item() and compare_start_idx + step < total_len:
-            # #     step += 1
-            # next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], current_generation[i, prompt_len[i]:min(prompt_len[i]+genearte_idx, total_len-1)], next_generation[i, prompt_len[i]-1+genearte_idx:total_len-1]), dim=0)
-            # genearte_idx += step 
+            compare_start_idx = prompt_len[i] + genearte_idx
+            step = 1
+            while genearte_idx != 0 and torch.all(torch.eq(current_generation[i, compare_start_idx:compare_start_idx+step], next_generation[i, compare_start_idx:compare_start_idx + step])).item() and compare_start_idx + step < total_len:
+                step += 1
+            next_generation[i, :] = torch.cat((tokens[i, :prompt_len[i]], current_generation[i, prompt_len[i]:min(prompt_len[i]+genearte_idx, total_len-1)], next_generation[i, prompt_len[i]-1+genearte_idx:total_len-1]), dim=0)
+            genearte_idx += step 
             
         trajectory.append(next_generation)
         if torch.all(torch.eq(next_generation, current_generation)).item() or prompt_len[0]-1+genearte_idx >= total_len-1:
