@@ -241,7 +241,7 @@ def get_jacobian_trajectory(
             return trajectory[:-1], logits_trajectory[-1], eos_reached # converged generation is saved twice so we delete the last element of trajectory list
         itr+=1
 
-def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, use_labels, data_size):
+def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, use_labels, data_size, which_half):
 
     if 'sharegpt' in filename.lower():
         with open(filename) as f:
@@ -293,7 +293,15 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
     counter = 0
     new_data = []
 
-    for i in tqdm(range(prompt_size)):
+    if which_half == "first_t":
+        tmp = range(0, prompt_size//3)
+    elif which_half == "second_t":
+        tmp = range(prompt_size//3, 2*prompt_size//3)
+    elif which_half == "third_t":
+        tmp = range(2*prompt_size//3, prompt_size)
+    print(tmp)
+    
+    for i in tqdm(tmp):
         d = train_dataset[i]
         inputs = torch.Tensor(d['sources_input_ids']).unsqueeze(0).to(device=model.device, dtype=torch.int)
 
@@ -362,6 +370,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str,
                         default="models/vicuna-7b-v1.5")
     parser.add_argument("--data_size", default=5000)
+    parser.add_argument("--which_half", default="first_half")
+    
     parser.add_argument("--use_aug", default=True)
     parser.add_argument("--use_labels", default=True)
     parser.add_argument("--cuda_number", default=True)
@@ -374,4 +384,4 @@ if __name__ == "__main__":
                                              torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
     tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right", use_fast=True)
 
-    main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, args.use_aug, args.use_labels, args.data_size)
+    main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, args.use_aug, args.use_labels, args.data_size, args.which_half)
