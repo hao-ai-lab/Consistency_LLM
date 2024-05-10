@@ -56,7 +56,7 @@ A demo of using CLLM to achieve significant improvements ($\sim3\times$) in gene
 ## News 🔥
 
 - [2024/3] CLLMs are integrated in [FastChat](https://github.com/lm-sys/FastChat/blob/main/docs/model_support.md)!
-- [2024/2] CLLM Paper now available on [arXiv](http://arxiv.org/abs/2403.00835). CLLMs model checkpoints are released on [Huggingface Hub](https://huggingface.co/cllm).
+- [2024/2] CLLM Paper now available on [arXiv](http://arxiv.org/abs/2403.00835). CLLMs model checkpoints are released on [Hugging Face Hub](https://huggingface.co/cllm).
 
 ## Introduction
 Consistency Large Language Models (CLLMs) is a family of efficient parallel decoders refined from pre-trained LLMs.
@@ -89,7 +89,7 @@ pip install flash-attn==2.4.1
 ## Model Weights
 #### Target Pre-trained Models
 
-| Size | Dataset |  Huggingface Repo                             |
+| Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/vicuna-7b-sharegpt-gpt4-48k](https://huggingface.co/cllm/vicuna-7b-sharegpt-gpt4-48k)   |
 | 7B  | GSM8K (Math) | [GAIR/Abel-7B-001](https://huggingface.co/GAIR/Abel-7B-001) |
@@ -97,7 +97,7 @@ pip install flash-attn==2.4.1
 | 7B  | Code-Search-Net Python | [cllm/deepseekcoder_7b_codesearch_net_python](https://huggingface.co/cllm/deepseekcoder_7b_codesearch_net_python) |
 
 #### CLLMs
-| Size | Dataset |  Huggingface Repo                             |
+| Size | Dataset |  Hugging Face Repo                             |
 | ---- | -------- | --------------------------------------------- | 
 | 7B   | ShareGPT |  [cllm/consistency-llm-7b-sharegpt48k](https://huggingface.co/cllm/consistency-llm-7b-sharegpt48k)   |
 | 7B  | GSM8K (Math) | [cllm/consistency-llm-7b-math](https://huggingface.co/cllm/consistency-llm-7b-math) |
@@ -113,8 +113,8 @@ bash applications/run_chat_cllm.sh {model_path} {cllm_type}
 
 ### Training
 1. Collect Jacobi trajectory:
-- Method 1: Directly download Jacobi trajectory to `data/collected_jacobi_trajectory/` from [our Huggingface Hub page](https://huggingface.co/cllm).
-- Method 2 (Generate trajectory suitable to your own target model and dataset): Some raw datasets that contain additional information like database dependency or cannot be directly loaded from Huggingface Hub (for example, [Spider](https://huggingface.co/datasets/cllm/spider) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
+- Method 1: Directly download Jacobi trajectory to `data/collected_jacobi_trajectory/` from [our Hugging Face Hub page](https://huggingface.co/cllm).
+- Method 2 (Generate trajectory suitable to your own target model and dataset): Some raw datasets that contain additional information like database dependency or cannot be directly loaded from Hugging Face Hub (for example, [Spider](https://huggingface.co/datasets/cllm/spider) and [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) are required to be installed in `data/raw_data`). Then run `scripts/generate_trajectory.sh` and the training dataset for a CLLM will be saved in  `data/collected_jacobi_trajectory/`.
 
 For example, for the gsm8k dataset, run:
 ```
