@@ -14,6 +14,7 @@ class CllmTrainer(Trainer):
         args = kwargs["args"]
         self.train_step_cnt = 0
         self.max_new_tokens = args.max_new_tokens
+        self.use_gt_labels = args.use_gt_labels
 
     def training_step(self, model, inputs):
         self.train_step_cnt += 1
@@ -45,7 +46,10 @@ class CllmTrainer(Trainer):
 
         ### compute AutoRegression loss ###
         # use labels to avoid pattern collapse
-        labels = inputs['complete_teacher_output_ids']
+        if self.use_gt_labels:
+            labels = inputs['labels_ids']
+        else:
+            labels = inputs['complete_teacher_output_ids']
         # TODO: check if it's right when batch size > 1
         labels = torch.tensor(labels).to(model.device)
         attention_mask = torch.full_like(labels, 1).to(model.device)

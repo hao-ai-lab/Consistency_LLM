@@ -68,6 +68,7 @@ class TrainingArguments(transformers.TrainingArguments):
             "help": "Size of n_token_sequence in Jacobi trajectory."
         },
     )
+    use_gt_labels: bool = True
     report_to: str = field(
         default='wandb',
         metadata={
