@@ -105,7 +105,7 @@ def preprocess_distill_data(
     teacher_output_ids = torch.tensor(teacher_output_ids[0], dtype=torch.int64)
     complete_teacher_output_ids = torch.tensor(complete_teacher_output_ids, dtype=torch.int64)
     for answer_ids in answer_trajectory_ids:
-        answer_ids = torch.tensor(answer_ids, dtype=torch.int)
+        answer_ids = torch.tensor(answer_ids, dtype=torch.int64)
         #print(answer_ids)
         #print(jacobian_prompt_ids)
         if len(jacobian_prompt_ids.shape) == len(answer_ids.shape):
@@ -211,6 +211,8 @@ def train():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = int(os.environ["LOCAL_RANK"])
     training_args.local_rank = local_rank
+    
+    torch.set_default_dtype(torch.float)
 
     # Setup logging
     logging.basicConfig(

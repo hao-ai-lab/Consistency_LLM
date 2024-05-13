@@ -14,13 +14,12 @@ torchrun --nnodes=1 --nproc_per_node=8 --rdzv_id=101 --rdzv_endpoint='localhost:
     --output_dir ${output_path} \
     --max_new_tokens ${n_token_seq_size} \
     --bf16 True \
-    --tf32 True \
     --report_to wandb \
     --do_train \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 4 \
+    --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 1 \
     --gradient_checkpointing True \
     --evaluation_strategy "epoch" \
     --save_strategy "steps" \
