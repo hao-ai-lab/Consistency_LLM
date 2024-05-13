@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 export WANDB_PROJECT=consistency_llm
 
 model_path=$1
@@ -6,7 +6,7 @@ trajectory_file=$2
 output_path=$3
 n_token_seq_size=$4
 
-torchrun --nnodes=1 --nproc_per_node=8 --rdzv_id=101 --rdzv_endpoint='localhost:5666' \
+torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=101 --rdzv_endpoint='localhost:5666' \
     --master_port 10000 \
     cllm/train_cllm_global.py \
     --target_model_path ${model_path} \
