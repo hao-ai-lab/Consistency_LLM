@@ -22,6 +22,7 @@ from transformers.modeling_attn_mask_utils import (
 )
 from transformers import LlamaModel, LlamaForCausalLM, GenerationConfig
 import argparse
+import jsonlines
 
 import os
 
@@ -32,10 +33,12 @@ path_root = Path(__file__).parents[2]
 sys.path.append(str(path_root))
 
 from cllm.utils import detect_repetitive_patterns
-from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward_profiling
+from cllm.cllm_llama_modeling import delete_false_key_value, tree_update_key_value, jacobi_forward_profiling, jacobi_forward_tree_profiling
 
 DynamicCache.delete_false_key_value = delete_false_key_value
+DynamicCache.tree_update_key_value = tree_update_key_value
 LlamaForCausalLM.jacobi_forward = jacobi_forward_profiling
+LlamaForCausalLM.jacobi_forward_tree = jacobi_forward_tree_profiling
 
 def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
     converge_step = []
@@ -73,15 +76,112 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
 
     return generation[0, prompt_len:], converge_step, all_jacobian_trajectory
 
-def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len):
+def jacobi_generate_tree(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, tree_width):
+    converge_step = []
+    forward_times = 0
+
+    all_jacobian_trajectory = []
+    prompt_len = torch.sum(inputs['attention_mask'], dim=-1)
+    generation = inputs['input_ids']
+    
+    t1 = torch.cuda.Event(enable_timing=True)
+    t2 = torch.cuda.Event(enable_timing=True)
+    t1.record()
+    ### prefill the kv-cache
+    past_key_values, first_correct_tokens, first_correct_tokens_prob = model.jacobi_forward_tree(input_ids=inputs['input_ids'], max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True, tree_width=tree_width)
+    ### generation phase
+    t2.record()
+    torch.cuda.synchronize()
+    
+    t = t1.elapsed_time(t2) / 1000
+    profile_time = t
+    itr = 0
+    eos_reached = False
+    
+    t1 = torch.cuda.Event(enable_timing=True)
+    t2 = torch.cuda.Event(enable_timing=True)
+    t1.record()
+    d = {
+        "model_calculation": [],
+        "topk_calc": [],
+        "concat": [],
+        "calculate_agreement": [],
+        "advancement": [],
+    }
+    while True:
+        itr += 1
+        bsz = 1 # only support batch_size = 1 now
+        # randomly initialize the first point of jacobian trajectory
+        random_point = torch.tensor(random.choices(generation.flatten(), k=tree_width*(max_new_tokens-1)), device="cuda").view(tree_width,-1)
+        input_ids = torch.cat((first_correct_tokens.view(tree_width, -1), random_point),dim=-1)
+        
+        # TODO if argmax then previsou line, else use sampling
+        jacobian_trajectory, n_gram_generation, first_correct_tokens, first_correct_tokens_prob, iter_steps, breakdown_time = model.jacobi_forward_tree(input_ids=input_ids, topk_prob=first_correct_tokens_prob, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False, tree_width=tree_width)
+        
+        
+        d["model_calculation"].extend(breakdown_time["model_calculation"])
+        d["topk_calc"].extend(breakdown_time["topk_calc"])
+        d["concat"].extend(breakdown_time["concat"])
+        d["calculate_agreement"].extend(breakdown_time["calculate_agreement"])
+        d["advancement"].extend(breakdown_time["advancement"])
+        
+        forward_times += iter_steps
+        all_jacobian_trajectory.append(jacobian_trajectory)
+        eos_positions = torch.where(n_gram_generation.flatten()==tokenizer.eos_token_id)[0]
+        # eos_positions = np.array(
+        #     np.unravel_index(eos_positions.cpu().numpy(), n_gram_generation.shape)
+        # ).T
+        # eos_positions = eos_positions[:, 0]
+
+        # if len(eos_positions) > 0:
+        #     rescale_n_gram_generation_prob = n_gram_generation_prob / n_gram_generation_prob.sum()
+        #     random_threshold = torch.rand(rescale_n_gram_generation_prob.shape).to(rescale_n_gram_generation_prob.device)
+            
+        #     selected_eos_sentences = random_threshold < rescale_n_gram_generation_prob
+                
+        #     selected_eos_sentences = torch.where(
+        #         selected_eos_sentences==True
+        #     )[0]
+            
+        #     candidate = np.intersect1d(eos_positions.cpu().numpy(), selected_eos_sentences.cpu().numpy())
+            
+        #     if len(candidate) > 0:            
+        #         eos_reached = True
+        #         selected_eos_sentence_idx = candidate[0]
+        if len(eos_positions)>0:
+            eos_reached = True
+        ### see if next max_new_tokens should be generated & if True, update weights and prepare new input_id 
+        generation = torch.cat((generation, n_gram_generation), dim=-1)
+        if eos_reached or itr*max_new_tokens > max_new_seq_len:
+            break
+
+    # to support bsz > 1
+    converge_step.append(forward_times / itr)
+    # print(generation[0, prompt_len:])
+    # asdf
+    t2.record()
+    torch.cuda.synchronize()
+    
+    t = t1.elapsed_time(t2) / 1000
+    rest_time = t
+    rest_time = rest_time / itr
+    
+    return generation[0, prompt_len:], converge_step, all_jacobian_trajectory, profile_time, rest_time, d
+
+def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len, use_tree, tree_width):
 
     time_speed = []
+    profile_time_spend = []
+    rest_time_spend = []
     eos_reached = False
     inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
     t1 = torch.cuda.Event(enable_timing=True)
     t2 = torch.cuda.Event(enable_timing=True)
     t1.record()
-    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
+    if use_tree:
+        jacobi_generation, converge_step, all_jacobian_trajectory, profile_time, rest_time, d = jacobi_generate_tree(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, tree_width)
+    else:
+        jacobi_generation, converge_step, all_jacobian_trajectory, profile_time, rest_time, d = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
     t2.record()
     torch.cuda.synchronize()
     
@@ -96,8 +196,12 @@ def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, 
         total_generation_len = jacobi_generation.shape[0]
         decoded_generation = tokenizer.decode(jacobi_generation)
     time_speed.append(total_generation_len/t)
+    profile_time_spend.append(profile_time)
+    rest_time_spend.append(rest_time)
 
-    return eos_reached, time_speed, converge_step, jacobi_generation, decoded_generation, all_jacobian_trajectory
+    for key in d.keys():
+        d[key] = sum(d[key])/(len(d[key])+1)
+    return eos_reached, time_speed, converge_step, jacobi_generation, decoded_generation, all_jacobian_trajectory, profile_time_spend, rest_time_spend, d
     
 def speed_compare(args):
     # Load model and tokenizer
@@ -112,6 +216,10 @@ def speed_compare(args):
     converge_step = []
     ar_time_speed = []
     jacobian_time_speed = []
+    jacobian_profile_time_speed = []
+    jacobian_rest_time_speed = []
+    generation_length = []
+    d_all = collections.defaultdict(list)
     filename = args.filename
     data = []
     with open(filename, 'r') as file:
@@ -120,196 +228,221 @@ def speed_compare(args):
     
     per_request_meta_trajectory_records = []
     data_lst = range(args.data_size)
+    use_tree = args.use_tree
+    tree_width = args.tree_width
     # only support batch size ==1 now
-    for i in tqdm(data_lst): 
-        d = data[i]
-        prompt_mapping = "Question:\n{input}\nAnswer:\nLet's think step by step.\n"
-        processed_prompt = prompt_mapping.format(input=d['question'])
-        max_new_tokens = args.max_new_tokens
-        inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-        ar_begin = time.time()
-        ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
-        ar_end = time.time()
-        print(f'ar generated length: {len(ar_generated)}')
-        eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
-        
-        if not detect_repetitive_patterns(tokenizer, decoded_ids, repeat_ngram_size=10):
-            per_request_meta_trajectory_records.append(all_jacobian_trajectory)
-
-            jacobian_time_speed.append(*jacobian_time_speed_lst)
-            converge_step.append(*jacobian_itr_step_lst)
-
-            inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-
-            gen_cfg = GenerationConfig.from_model_config(model.config)
-
-            ar_begin = torch.cuda.Event(enable_timing=True)
-            ar_end = torch.cuda.Event(enable_timing=True)
-            ar_begin.record()
-            ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=512)[0][inputs.input_ids.shape[-1]:-1]
-            ar_end.record()
-            torch.cuda.synchronize()
-            
-            #print(ar_generated)
-            print(f'ar generated length: {len(ar_generated)}')
-            ar_time = ar_begin.elapsed_time(ar_end) / 1000
-            print(f'ar time: {len(ar_generated)/(ar_time)}')
-            ar_time_speed.append(len(ar_generated)/ar_time)
+    with jsonlines.open(args.output_file, "w") as f:
     
-    # all trajectory analsis for speedup interpretability
-    fast_forward_and_fix_points_statistics = {}
-    # initialize dict for all stats
-    fast_forward_and_fix_points_statistics['fix_points'] = []
-    fast_forward_and_fix_points_statistics['fast_forward'] = []
-    fast_forward_and_fix_points_statistics['fix_points_per_gram'] = []
+        for i in tqdm(data_lst): 
+            d = data[i]
+            prompt_mapping = "Question:\n{input}\nAnswer:\nLet's think step by step.\n"
+            processed_prompt = prompt_mapping.format(input=d['question'])
+            max_new_tokens = args.max_new_tokens
+            # inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
+            # ar_begin = time.time()
+            # ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
+            # ar_end = time.time()
+            # print(f'ar generated length: {len(ar_generated)}')
+            eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory, profile_time_spend, rest_time_spend, dic = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len, use_tree, tree_width)
+            if not detect_repetitive_patterns(tokenizer, decoded_ids, repeat_ngram_size=10):
+                per_request_meta_trajectory_records.append(all_jacobian_trajectory)
+                f.write({"question": d['question'], "answer": decoded_result})
+                jacobian_time_speed.append(*jacobian_time_speed_lst)
+                generation_length.append(len(decoded_ids))
+                jacobian_profile_time_speed.append(*profile_time_spend)
+                rest_speed = len(decoded_ids)/ rest_time_spend[0]
+                jacobian_rest_time_speed.append(*rest_time_spend)
+                converge_step.append(*jacobian_itr_step_lst)
+                for key in dic.keys():
+                    d_all[key].append(dic[key])
+                # inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
 
-    # iterate over all requests
-    for all_generation_trajectory in per_request_meta_trajectory_records:
-        fast_forward_metrics = []
+                # gen_cfg = GenerationConfig.from_model_config(model.config)
 
-        fix_points_metrics = 0
-
-        effective_trajectory_length = args.max_new_tokens
-        # iterate over all n-grams, across the sequence length dimension
-        # last trajectory contains eos, we need to keep track
-        last_traj_flag = False
-        for n_gram_id in range(len(all_generation_trajectory)):
-            # initialize fix_points_tracker
-            fix_points_tracker = {}
-            for pos_ind in range(args.max_new_tokens):
-                # to track how many times right token is predicted right
-                fix_points_tracker[pos_ind] = 0
-
-            # initialize single_fast_forward_metrics
-            single_fast_forward_metrics = []
-
-            generation_trajectory = all_generation_trajectory[n_gram_id]
-
-            if n_gram_id == len(all_generation_trajectory) - 1:
-                last_traj_flag = True
-
-            correct_token_cnt = 0
-            fix_points_per_gram = 0
-            # look at a single n-gram trajectory
-            # iterate over all points in the trajectory (with the same dimension)
-            eos_reached = False
-            eos_pos = None
-            steps_to_convergence = 0
-            for id, generation_ids in enumerate(generation_trajectory):
-                # skip initialiation
-                if id == 0:
-                    continue
-                if eos_reached == True:
-                    break
-                assert len(generation_ids[0]) == args.max_new_tokens
-
-                # iterate over all tokens
-                fast_forward_cnt = 0
-
-                contiguous_correct_flag = True
-
-                for i in range(len(generation_ids[0])):
-                    token_generated = generation_ids[0][i]
-                    if generation_ids[0][i] == generation_trajectory[-1][0][i]:
-                        #print(BLUE + tokenizer.decode([token_generated]) + RESET, end=" ")  # print blue token
-                        # update fix point tracker
-                        fix_points_tracker[i] += 1
-
-                        # update fast-forward tracker
-                        # first (i + 1) is to offset index
-                        if (i + 1) > correct_token_cnt and contiguous_correct_flag:
-                            fast_forward_cnt += 1
-
-                        # check whether eos has been reached as a contiguous sentence
-                        if last_traj_flag and token_generated == tokenizer.eos_token_id and contiguous_correct_flag:
-                            effective_trajectory_length = i + 1
-
-                            eos_reached = True
-                            eos_pos = i
-
-                            # before break out of the loop, uppdate values
-                            correct_token_cnt += fast_forward_cnt
-
-                            break
-                    else:
-                        #print(RED + tokenizer.decode([token_generated]) + RESET, end=" ")  # print red token
-                        if fix_points_tracker[i] > 0:
-                                fix_points_tracker[i] = 0
-
-                        if contiguous_correct_flag:
-                            correct_token_cnt += fast_forward_cnt
-                            contiguous_correct_flag = False
-
-                single_fast_forward_metrics.append(fast_forward_cnt)
-
-                steps_to_convergence += 1
-
-            ff_baseline_cnt = {}
-            for pos_ind in range(effective_trajectory_length):
-                # to track how many times right token should be predicted right, if there is only fast_forward
-                ff_baseline_cnt[pos_ind] = 0
-
-            fast_forward_ptr = 0
-            next_ff_flag = True
-            for pos_ind in range(effective_trajectory_length):
-                if next_ff_flag:
-                    fast_forward_offset = single_fast_forward_metrics[fast_forward_ptr]
-                    next_ff_flag = False
-
-                ff_baseline_cnt[pos_ind] = steps_to_convergence - fast_forward_ptr
-
-                fast_forward_offset -= 1
-                if fast_forward_offset == 0:
-                    next_ff_flag = True
-                    fast_forward_ptr += 1
-
-            for pos_ind in fix_points_tracker.keys():
-                cnt = fix_points_tracker[pos_ind]
-                ff_baseline = ff_baseline_cnt[pos_ind]
-                if cnt > ff_baseline:
-                    fix_points_metrics += 1
-                    fix_points_per_gram += 1
-
-                if last_traj_flag and pos_ind == eos_pos:
-                    break
-
-            # record avg fast forward count over a single n-gram
-            fast_forward_metrics.append(np.average(single_fast_forward_metrics))
-            fast_forward_and_fix_points_statistics['fix_points_per_gram'].append(fix_points_per_gram)
-
-
-        all_fast_forward = fast_forward_and_fix_points_statistics['fast_forward']
-        all_fix_points = fast_forward_and_fix_points_statistics['fix_points']
-
-        avg_fast_forward = np.average(fast_forward_metrics)
-        all_fast_forward.append(avg_fast_forward)
-        all_fix_points.append(fix_points_metrics)
-
-
-    print(f"global average fast forward cnt: {np.average(fast_forward_and_fix_points_statistics['fast_forward'])}")
-    print(f"global average fix-point cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points'])}")
-    print(f"global average fix-point per gram cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points_per_gram'])}")
+                # ar_begin = torch.cuda.Event(enable_timing=True)
+                # ar_end = torch.cuda.Event(enable_timing=True)
+                # ar_begin.record()
+                # ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=512)[0][inputs.input_ids.shape[-1]:-1]
+                # ar_end.record()
+                # torch.cuda.synchronize()
+                
+                # #print(ar_generated)
+                # print(f'ar generated length: {len(ar_generated)}')
+                # ar_time = ar_begin.elapsed_time(ar_end) / 1000
+                # print(f'ar time: {len(ar_generated)/(ar_time)}')
+                # ar_time_speed.append(len(ar_generated)/ar_time)
     
-    save_path = 'data/speedup_profiling_results/'
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
+    # # all trajectory analsis for speedup interpretability
+    # fast_forward_and_fix_points_statistics = {}
+    # # initialize dict for all stats
+    # fast_forward_and_fix_points_statistics['fix_points'] = []
+    # fast_forward_and_fix_points_statistics['fast_forward'] = []
+    # fast_forward_and_fix_points_statistics['fix_points_per_gram'] = []
 
-    new_file_path= f'gsm8k_speedup_profiling_results_{args.max_new_tokens}_{args.max_new_seq_len}_{args.data_size}_stats.json'
-    fast_forward_and_fix_points_statistics_file = os.path.join(save_path, new_file_path)
+    # # iterate over all requests
+    # for all_generation_trajectory in per_request_meta_trajectory_records:
+    #     fast_forward_metrics = []
 
-    with open(fast_forward_and_fix_points_statistics_file, 'w') as f:
-        json.dump(fast_forward_and_fix_points_statistics, f, indent=4)
+    #     fix_points_metrics = 0
+
+    #     effective_trajectory_length = args.max_new_tokens
+    #     # iterate over all n-grams, across the sequence length dimension
+    #     # last trajectory contains eos, we need to keep track
+    #     last_traj_flag = False
+    #     for n_gram_id in range(len(all_generation_trajectory)):
+    #         # initialize fix_points_tracker
+    #         fix_points_tracker = {}
+    #         for pos_ind in range(args.max_new_tokens):
+    #             # to track how many times right token is predicted right
+    #             fix_points_tracker[pos_ind] = 0
+
+    #         # initialize single_fast_forward_metrics
+    #         single_fast_forward_metrics = []
+
+    #         generation_trajectory = all_generation_trajectory[n_gram_id]
+
+    #         if n_gram_id == len(all_generation_trajectory) - 1:
+    #             last_traj_flag = True
+
+    #         correct_token_cnt = 0
+    #         fix_points_per_gram = 0
+    #         # look at a single n-gram trajectory
+    #         # iterate over all points in the trajectory (with the same dimension)
+    #         eos_reached = False
+    #         eos_pos = None
+    #         steps_to_convergence = 0
+    #         for id, generation_ids in enumerate(generation_trajectory):
+    #             # skip initialiation
+    #             if id == 0:
+    #                 continue
+    #             if eos_reached == True:
+    #                 break
+    #             assert len(generation_ids[0]) == args.max_new_tokens
+
+    #             # iterate over all tokens
+    #             fast_forward_cnt = 0
+
+    #             contiguous_correct_flag = True
+
+    #             for i in range(len(generation_ids[0])):
+    #                 token_generated = generation_ids[0][i]
+    #                 if generation_ids[0][i] == generation_trajectory[-1][0][i]:
+    #                     #print(BLUE + tokenizer.decode([token_generated]) + RESET, end=" ")  # print blue token
+    #                     # update fix point tracker
+    #                     fix_points_tracker[i] += 1
+
+    #                     # update fast-forward tracker
+    #                     # first (i + 1) is to offset index
+    #                     if (i + 1) > correct_token_cnt and contiguous_correct_flag:
+    #                         fast_forward_cnt += 1
+
+    #                     # check whether eos has been reached as a contiguous sentence
+    #                     if last_traj_flag and token_generated == tokenizer.eos_token_id and contiguous_correct_flag:
+    #                         effective_trajectory_length = i + 1
+
+    #                         eos_reached = True
+    #                         eos_pos = i
+
+    #                         # before break out of the loop, uppdate values
+    #                         correct_token_cnt += fast_forward_cnt
+
+    #                         break
+    #                 else:
+    #                     #print(RED + tokenizer.decode([token_generated]) + RESET, end=" ")  # print red token
+    #                     if fix_points_tracker[i] > 0:
+    #                             fix_points_tracker[i] = 0
+
+    #                     if contiguous_correct_flag:
+    #                         correct_token_cnt += fast_forward_cnt
+    #                         contiguous_correct_flag = False
+
+    #             single_fast_forward_metrics.append(fast_forward_cnt)
+
+    #             steps_to_convergence += 1
+
+    #         ff_baseline_cnt = {}
+    #         for pos_ind in range(effective_trajectory_length):
+    #             # to track how many times right token should be predicted right, if there is only fast_forward
+    #             ff_baseline_cnt[pos_ind] = 0
+
+    #         fast_forward_ptr = 0
+    #         next_ff_flag = True
+    #         for pos_ind in range(effective_trajectory_length):
+    #             if next_ff_flag:
+    #                 fast_forward_offset = single_fast_forward_metrics[fast_forward_ptr]
+    #                 next_ff_flag = False
+
+    #             ff_baseline_cnt[pos_ind] = steps_to_convergence - fast_forward_ptr
+
+    #             fast_forward_offset -= 1
+    #             if fast_forward_offset == 0:
+    #                 next_ff_flag = True
+    #                 fast_forward_ptr += 1
+
+    #         for pos_ind in fix_points_tracker.keys():
+    #             cnt = fix_points_tracker[pos_ind]
+    #             ff_baseline = ff_baseline_cnt[pos_ind]
+    #             if cnt > ff_baseline:
+    #                 fix_points_metrics += 1
+    #                 fix_points_per_gram += 1
+
+    #             if last_traj_flag and pos_ind == eos_pos:
+    #                 break
+
+    #         # record avg fast forward count over a single n-gram
+    #         fast_forward_metrics.append(np.average(single_fast_forward_metrics))
+    #         fast_forward_and_fix_points_statistics['fix_points_per_gram'].append(fix_points_per_gram)
+
+
+    #     all_fast_forward = fast_forward_and_fix_points_statistics['fast_forward']
+    #     all_fix_points = fast_forward_and_fix_points_statistics['fix_points']
+
+    #     avg_fast_forward = np.average(fast_forward_metrics)
+    #     all_fast_forward.append(avg_fast_forward)
+    #     all_fix_points.append(fix_points_metrics)
+
+
+    # print(f"global average fast forward cnt: {np.average(fast_forward_and_fix_points_statistics['fast_forward'])}")
+    # print(f"global average fix-point cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points'])}")
+    # print(f"global average fix-point per gram cnt: {np.average(fast_forward_and_fix_points_statistics['fix_points_per_gram'])}")
+    
+    # save_path = 'data/speedup_profiling_results/'
+    # if not os.path.exists(save_path):
+    #     os.makedirs(save_path)
+
+    # new_file_path= f'gsm8k_speedup_profiling_results_{args.max_new_tokens}_{args.max_new_seq_len}_{args.data_size}_stats.json'
+    # fast_forward_and_fix_points_statistics_file = os.path.join(save_path, new_file_path)
+
+    # with open(fast_forward_and_fix_points_statistics_file, 'w') as f:
+    #     json.dump(fast_forward_and_fix_points_statistics, f, indent=4)
     
     ar_time_speed = ar_time_speed[1:]
     jacobian_time_speed = jacobian_time_speed[1:]
+    jacobian_profile_time_speed = jacobian_profile_time_speed[1:]
+    jacobian_rest_time_speed = jacobian_rest_time_speed[1:]
+    generation_length = generation_length[1:]
+    converge_step = converge_step[1:]
+    
     print(f'ar speed: {ar_time_speed}')
     print(f'jacobian speed: {jacobian_time_speed}')
     print(f'The max speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {max(jacobian_time_speed)}')
     print(f'The min speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {min(jacobian_time_speed)}')
     print(f'The avg speed of model {args.test_model_path} using jacobian iteration (max_new_tokens: {max_new_tokens}) is {sum(jacobian_time_speed)/len(jacobian_time_speed)}')
-    print(f'The max speed of model {args.test_model_path} using ar is {max(ar_time_speed)}')
-    print(f'The min speed of model {args.test_model_path} using ar is {min(ar_time_speed)}')
-    print(f'The avg speed of model {args.test_model_path} using ar is {sum(ar_time_speed)/len(ar_time_speed)}')
+    print()
+    # print("jacobian_profile_time_speed", jacobian_profile_time_speed)
+    print("avg jacobian_profile_time_speed", sum(jacobian_profile_time_speed)/len(jacobian_profile_time_speed))
+    print()
+    # print("jacobian_rest_time_speed", jacobian_rest_time_speed)
+    print("avg jacobian_rest_time_speed", sum(jacobian_rest_time_speed)/len(jacobian_rest_time_speed))
+    print()
+    # print("generation_length", generation_length)
+    # print("converge_step", converge_step)
+    print("avg converge_step", sum(converge_step)/len(converge_step))
+    
+    # for key in d_all.keys():WA#
+    # print(f'The max speed of model {args.test_model_path} using ar is {max(ar_time_speed)}')
+    # print(f'The min speed of model {args.test_model_path} using ar is {min(ar_time_speed)}')
+    # print(f'The avg speed of model {args.test_model_path} using ar is {sum(ar_time_speed)/len(ar_time_speed)}')
 
 if __name__ == "__main__":  
     parser = argparse.ArgumentParser()
@@ -321,7 +454,12 @@ if __name__ == "__main__":
                         default="models/vicuna-7b-sharegpt-gpt4-48k")
     parser.add_argument("--teacher_model_path", type=str,
                         default="cllm/consistency-llm-7b-sharegpt48k")
-    parser.add_argument("--data_size", type=str,
-                        default=500)
+    parser.add_argument("--data_size", type=int,
+                        default=10)
+    parser.add_argument("--output_file", type=str,
+                        default="result/tmp.jsonl")
+    parser.add_argument("--use_tree", action='store_true')
+    parser.add_argument("--tree_width", type=int,
+                        default=4)
     args = parser.parse_args() 
     speed_compare(args)

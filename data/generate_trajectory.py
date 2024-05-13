@@ -351,7 +351,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
     save_path = 'data/collected_jacobi_trajectory/'    
     cleaned_data = jacobian_generated_data_postprocessed(new_data, model_path)
     if "gsm8k" in filename.lower():
-        new_file_name = "cleaned_" + f"gsm8k_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
+        new_file_name = "cleaned_" + f"gsm8k_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}_{which_half}.json"
     new_file_path = os.path.join(save_path, new_file_name)
     
     # create directory for a path if it doesn't exist
