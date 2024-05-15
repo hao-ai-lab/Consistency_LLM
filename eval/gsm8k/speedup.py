@@ -118,7 +118,7 @@ def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, 
     t1 = torch.cuda.Event(enable_timing=True)
     t2 = torch.cuda.Event(enable_timing=True)
     t1.record()
-    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_forward_profiling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
+    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
     t2.record()
     torch.cuda.synchronize()
     
