@@ -22,7 +22,7 @@ from transformers.modeling_attn_mask_utils import (
 )
 from transformers import LlamaModel, LlamaForCausalLM, GenerationConfig
 import argparse
-
+import jsonlines
 import os
 
 import sys
@@ -32,10 +32,11 @@ path_root = Path(__file__).parents[2]
 sys.path.append(str(path_root))
 
 from cllm.utils import detect_repetitive_patterns
-from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward_profiling
+from cllm.cllm_llama_modeling import delete_false_key_value, jacobi_forward_profiling, jacobi_forward_rejection_sampling
 
 DynamicCache.delete_false_key_value = delete_false_key_value
 LlamaForCausalLM.jacobi_forward = jacobi_forward_profiling
+LlamaForCausalLM.jacobi_forward_rejection_sampling = jacobi_forward_rejection_sampling
 
 def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
     converge_step = []
@@ -73,6 +74,42 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
 
     return generation[0, prompt_len:], converge_step, all_jacobian_trajectory
 
+def jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, top_k, top_p):
+    converge_step = []
+    forward_times = 0
+
+    all_jacobian_trajectory = []
+    prompt_len = torch.sum(inputs['attention_mask'], dim=-1)
+    generation = inputs['input_ids']
+    ### prefill the kv-cache
+    past_key_values, first_correct_token = model.jacobi_forward_rejection_sampling(input_ids=inputs['input_ids'], max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True, top_k=top_k, top_p=top_p)
+    ### generation phase
+    itr = 0
+    eos_reached = False
+    while True:
+        itr+=1
+        bsz = 1 # only support batch_size = 1 now
+        # randomly initialize the first point of jacobian trajectory
+        random_point = torch.tensor(random.choices(generation[0], k=(max_new_tokens-1)), device="cuda").view(1,-1)
+        input_ids = torch.cat((first_correct_token.view(1,-1), random_point),dim=-1)
+        jacobian_trajectory, n_gram_generation, first_correct_token, iter_steps = model.jacobi_forward_rejection_sampling(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False, top_k=top_k, top_p=top_p)
+        forward_times += iter_steps
+        all_jacobian_trajectory.append(jacobian_trajectory)
+        eos_positions = torch.where(n_gram_generation[0]==tokenizer.eos_token_id)[0]
+
+        if len(eos_positions)>0:
+            eos_reached = True
+        
+        ### see if next max_new_tokens should be generated & if True, update weights and prepare new input_id 
+        generation = torch.cat((generation, n_gram_generation), dim=-1)
+        if eos_reached or itr*max_new_tokens > max_new_seq_len:
+            break
+    
+    # to support bsz > 1
+    converge_step.append(forward_times / itr)
+
+    return generation[0, prompt_len:], converge_step, all_jacobian_trajectory
+
 def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len):
 
     time_speed = []
@@ -81,7 +118,33 @@ def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, 
     t1 = torch.cuda.Event(enable_timing=True)
     t2 = torch.cuda.Event(enable_timing=True)
     t1.record()
-    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
+    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len)
+    t2.record()
+    torch.cuda.synchronize()
+    
+    t = t1.elapsed_time(t2) / 1000
+    prompt_token_len = torch.sum(inputs['attention_mask'], dim=-1)
+    eos_positions = torch.where(jacobi_generation==tokenizer.eos_token_id)[0]
+    if len(eos_positions)>0:
+        eos_reached = True
+        total_generation_len = jacobi_generation[:int(eos_positions[0])].shape[0]
+        decoded_generation = tokenizer.decode(jacobi_generation[:int(eos_positions[0])])
+    else:
+        total_generation_len = jacobi_generation.shape[0]
+        decoded_generation = tokenizer.decode(jacobi_generation)
+    time_speed.append(total_generation_len/t)
+
+    return eos_reached, time_speed, converge_step, jacobi_generation, decoded_generation, all_jacobian_trajectory
+
+def jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len, top_k, top_p):
+
+    time_speed = []
+    eos_reached = False
+    inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
+    t1 = torch.cuda.Event(enable_timing=True)
+    t2 = torch.cuda.Event(enable_timing=True)
+    t1.record()
+    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, top_k, top_p)
     t2.record()
     torch.cuda.synchronize()
     
@@ -126,35 +189,39 @@ def speed_compare(args):
         prompt_mapping = "Question:\n{input}\nAnswer:\nLet's think step by step.\n"
         processed_prompt = prompt_mapping.format(input=d['question'])
         max_new_tokens = args.max_new_tokens
-        inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
-        ar_begin = time.time()
-        ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
-        ar_end = time.time()
-        print(f'ar generated length: {len(ar_generated)}')
-        eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
-        
-        if not detect_repetitive_patterns(tokenizer, decoded_ids, repeat_ngram_size=10):
-            per_request_meta_trajectory_records.append(all_jacobian_trajectory)
+        # inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
+        # ar_begin = time.time()
+        # ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)[0][inputs['input_ids'].shape[-1]:-1]
+        # ar_end = time.time()
+        # print(f'ar generated length: {len(ar_generated)}')
+        if args.rejection_sampling:
+            eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len, args.top_k, args.top_p)
+        else:
+            eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
+        with jsonlines.open(args.output_path, mode='a') as writer:
+            if not detect_repetitive_patterns(tokenizer, decoded_ids, repeat_ngram_size=10):
+                per_request_meta_trajectory_records.append(all_jacobian_trajectory)
 
-            jacobian_time_speed.append(*jacobian_time_speed_lst)
-            converge_step.append(*jacobian_itr_step_lst)
+                jacobian_time_speed.append(*jacobian_time_speed_lst)
+                converge_step.append(*jacobian_itr_step_lst)
 
-            inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
+                inputs = tokenizer([processed_prompt], return_tensors="pt").to(model.device)
 
-            gen_cfg = GenerationConfig.from_model_config(model.config)
+                gen_cfg = GenerationConfig.from_model_config(model.config)
 
-            ar_begin = torch.cuda.Event(enable_timing=True)
-            ar_end = torch.cuda.Event(enable_timing=True)
-            ar_begin.record()
-            ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=512)[0][inputs.input_ids.shape[-1]:-1]
-            ar_end.record()
-            torch.cuda.synchronize()
-            
-            #print(ar_generated)
-            print(f'ar generated length: {len(ar_generated)}')
-            ar_time = ar_begin.elapsed_time(ar_end) / 1000
-            print(f'ar time: {len(ar_generated)/(ar_time)}')
-            ar_time_speed.append(len(ar_generated)/ar_time)
+                ar_begin = torch.cuda.Event(enable_timing=True)
+                ar_end = torch.cuda.Event(enable_timing=True)
+                ar_begin.record()
+                ar_generated = model.generate(**inputs, use_cache=True, max_new_tokens=512)[0][inputs.input_ids.shape[-1]:-1]
+                ar_end.record()
+                torch.cuda.synchronize()
+                
+                #print(ar_generated)
+                print(f'ar generated length: {len(ar_generated)}')
+                ar_time = ar_begin.elapsed_time(ar_end) / 1000
+                print(f'ar time: {len(ar_generated)/(ar_time)}')
+                ar_time_speed.append(len(ar_generated)/ar_time)
+                writer.write({"question": processed_prompt, "jacobian_generated": decoded_result, "ar_generated": tokenizer.decode(ar_generated), "answer": d['answer']})
     
     # all trajectory analsis for speedup interpretability
     fast_forward_and_fix_points_statistics = {}
@@ -321,7 +388,14 @@ if __name__ == "__main__":
                         default="models/vicuna-7b-sharegpt-gpt4-48k")
     parser.add_argument("--teacher_model_path", type=str,
                         default="cllm/consistency-llm-7b-sharegpt48k")
-    parser.add_argument("--data_size", type=str,
+    parser.add_argument("--data_size", type=int,
                         default=500)
+    parser.add_argument("--rejection_sampling", action='store_true')
+    parser.add_argument("--top_k", type=int,
+                        default=0)
+    parser.add_argument("--top_p", type=float,
+                        default=0.0)
+    parser.add_argument("--output_path", type=str,
+                        default="result/ar.jsonl")
     args = parser.parse_args() 
     speed_compare(args)
