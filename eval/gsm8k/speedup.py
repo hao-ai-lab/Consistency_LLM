@@ -74,7 +74,7 @@ def jacobi_generate(inputs, model, tokenizer, max_new_tokens, max_new_seq_len):
 
     return generation[0, prompt_len:], converge_step, all_jacobian_trajectory
 
-def jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, top_k, top_p):
+def jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, temperature, top_k, top_p):
     converge_step = []
     forward_times = 0
 
@@ -82,7 +82,7 @@ def jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, 
     prompt_len = torch.sum(inputs['attention_mask'], dim=-1)
     generation = inputs['input_ids']
     ### prefill the kv-cache
-    past_key_values, first_correct_token = model.jacobi_forward_rejection_sampling(input_ids=inputs['input_ids'], max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True, top_k=top_k, top_p=top_p)
+    past_key_values, first_correct_token = model.jacobi_forward_rejection_sampling(input_ids=inputs['input_ids'], max_new_tokens=max_new_tokens, past_key_values=None, use_cache = True, prefill_phase = True, temperature=temperature, top_k=top_k, top_p=top_p)
     ### generation phase
     itr = 0
     eos_reached = False
@@ -92,7 +92,7 @@ def jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, 
         # randomly initialize the first point of jacobian trajectory
         random_point = torch.tensor(random.choices(generation[0], k=(max_new_tokens-1)), device="cuda").view(1,-1)
         input_ids = torch.cat((first_correct_token.view(1,-1), random_point),dim=-1)
-        jacobian_trajectory, n_gram_generation, first_correct_token, iter_steps = model.jacobi_forward_rejection_sampling(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False, top_k=top_k, top_p=top_p)
+        jacobian_trajectory, n_gram_generation, first_correct_token, iter_steps = model.jacobi_forward_rejection_sampling(input_ids=input_ids, max_new_tokens=max_new_tokens, past_key_values=past_key_values, use_cache = True, prefill_phase = False, temperature=temperature, top_k=top_k, top_p=top_p)
         forward_times += iter_steps
         all_jacobian_trajectory.append(jacobian_trajectory)
         eos_positions = torch.where(n_gram_generation[0]==tokenizer.eos_token_id)[0]
@@ -136,7 +136,7 @@ def jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, 
 
     return eos_reached, time_speed, converge_step, jacobi_generation, decoded_generation, all_jacobian_trajectory
 
-def jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len, top_k, top_p):
+def jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, max_new_seq_len, temperature, top_k, top_p):
 
     time_speed = []
     eos_reached = False
@@ -144,7 +144,7 @@ def jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenize
     t1 = torch.cuda.Event(enable_timing=True)
     t2 = torch.cuda.Event(enable_timing=True)
     t1.record()
-    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, top_k, top_p)
+    jacobi_generation, converge_step, all_jacobian_trajectory = jacobi_forward_rejection_sampling(inputs, model, tokenizer, max_new_tokens, max_new_seq_len, temperature, top_k, top_p)
     t2.record()
     torch.cuda.synchronize()
     
@@ -195,7 +195,7 @@ def speed_compare(args):
         # ar_end = time.time()
         # print(f'ar generated length: {len(ar_generated)}')
         if args.rejection_sampling:
-            eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len, args.top_k, args.top_p)
+            eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_rejection_sampling_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len, args.temperature, args.top_k, args.top_p)
         else:
             eos_reached, jacobian_time_speed_lst, jacobian_itr_step_lst, decoded_ids, decoded_result, all_jacobian_trajectory = jacobian_speed_evaluate(processed_prompt, model, tokenizer, max_new_tokens, args.max_new_seq_len)
         with jsonlines.open(args.output_path, mode='a') as writer:
@@ -221,6 +221,7 @@ def speed_compare(args):
                 ar_time = ar_begin.elapsed_time(ar_end) / 1000
                 print(f'ar time: {len(ar_generated)/(ar_time)}')
                 ar_time_speed.append(len(ar_generated)/ar_time)
+                # writer.write({"question": processed_prompt, "jacobian_generated": decoded_result, "answer": d['answer']})
                 writer.write({"question": processed_prompt, "jacobian_generated": decoded_result, "ar_generated": tokenizer.decode(ar_generated), "answer": d['answer']})
     
     # all trajectory analsis for speedup interpretability
@@ -395,6 +396,8 @@ if __name__ == "__main__":
                         default=0)
     parser.add_argument("--top_p", type=float,
                         default=0.0)
+    parser.add_argument("--temperature", type=float,
+                        default=1.0)
     parser.add_argument("--output_path", type=str,
                         default="result/ar.jsonl")
     args = parser.parse_args() 
