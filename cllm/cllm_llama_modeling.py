@@ -587,38 +587,57 @@ def jacobi_forward_rejection_sampling(
 
             # support bsz = 1 for now
             
+            ## implementation 1
+            # if previous_point_logits != None:
+            #     t = None
+            #     while generation_idx < seq_length - 1:
+            #         r = torch.rand(1, device = logits.device)
+            #         j = current_point[0, generation_idx+1]
+            #         if r < torch.min(torch.tensor([1], device=logits.device), logits[generation_idx, j] / previous_point_logits[generation_idx, j]):
+            #             # accept, and update n
+            #             generation_idx += 1
+            #         else:
+            #             # reject
+            #             t = sample(max_fn(logits[generation_idx, :] - previous_point_logits[generation_idx, :]))
+            #             break
                 
-            if previous_point_logits != None:
-                t = None
-                while generation_idx < seq_length - 1:
-                    r = torch.rand(1, device = logits.device)
-                    j = current_point[0, generation_idx+1]
-                    if r < torch.min(torch.tensor([1], device=logits.device), logits[generation_idx, j] / previous_point_logits[generation_idx, j]):
-                        # accept, and update n
-                        generation_idx += 1
-                    else:
-                        # reject
-                        t = sample(max_fn(logits[generation_idx, :] - previous_point_logits[generation_idx, :]))
-                        break
+            #     # sampling tokens for current jacobi trajectory
+            #     # currently only support batch_size = 1
+            #     next_point = sample(logits).view(1,-1)
+            #     if t != None and generation_idx < seq_length - 1:
+            #         next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), t.view(1, -1), next_point[0, generation_idx+1:seq_length-1].view(1,-1)), dim=-1)
+            #         generation_idx += 1
+            #     else:
+            #         next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
                 
-                # sampling tokens for current jacobi trajectory
-                # currently only support batch_size = 1
-                next_point = sample(logits).view(1,-1)
-                if t != None and generation_idx < seq_length - 1:
-                    next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), t.view(1, -1), next_point[0, generation_idx+1:seq_length-1].view(1,-1)), dim=-1)
+                
+            #     # next_point = sample(norm_logits(logits[0, :, :], temperature, top_k, top_p))
+            #     # next_point = torch.cat((current_point[0, :generation_idx].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
+            # else:
+            #     next_point = sample(logits).view(1,-1)
+            #     next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
+            #     generation_idx += 1
+                
+            # previous_point_logits = logits
+            
+            
+            ## implementation 2
+            while generation_idx < seq_length - 1:
+                j = current_point[0, generation_idx+1]
+                r = torch.rand(1, device = logits.device)
+                if r < logits[generation_idx, j]:
                     generation_idx += 1
                 else:
-                    next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
-                
-                
-                # next_point = sample(norm_logits(logits[0, :, :], temperature, top_k, top_p))
-                # next_point = torch.cat((current_point[0, :generation_idx].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
-            else:
-                next_point = sample(logits).view(1,-1)
-                next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
+                    t = sample(logits[generation_idx, :])
+                    break
+            
+            next_point = sample(logits).view(1,-1)
+            if t != None and generation_idx < seq_length - 1:
+                next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), t.view(1, -1), next_point[0, generation_idx+1:seq_length-1].view(1,-1)), dim=-1)
                 generation_idx += 1
-                
-            previous_point_logits = logits
+            else:
+                next_point = torch.cat((current_point[0, :generation_idx+1].view(1,-1), next_point[0, generation_idx:seq_length-1].view(1,-1)), dim=-1)
+            
             jacobian_trajectory.append(next_point)
             
             if torch.all(torch.eq(current_point, next_point)).item():    
