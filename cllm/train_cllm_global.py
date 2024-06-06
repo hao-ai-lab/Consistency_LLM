@@ -34,6 +34,8 @@ from typing import Dict
 
 from cllm_trainer_global import CllmTrainer
 
+from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -251,7 +253,7 @@ def train():
             math.ceil(training_args.model_max_length / orig_ctx_len))
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
     config.use_cache = False
-
+    
     # Load model and tokenizer
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.target_model_path,
@@ -266,6 +268,17 @@ def train():
     )
     if 'vicuna' in model_args.target_model_path:
         tokenizer.pad_token = tokenizer.unk_token
+        
+    model = prepare_model_for_kbit_training(model)
+    config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        r=32,
+        lora_alpha=16,
+        lora_dropout=0.05,
+    )
+
+    model = get_peft_model(model, config)
+    model.config.use_cache = False
 
     # Load data
     data_module = make_jacobian_data_module(tokenizer=tokenizer,
