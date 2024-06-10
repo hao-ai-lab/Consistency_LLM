@@ -46,7 +46,7 @@ IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 class ModelArguments:
     target_model_path: Optional[str] = field(
         default="models/vicuna-7b-v1.5",  metadata={"help": "Path to target model"})
-    qlora: bool = field(default=False, metadata={"help": "Enable QLoRA processing"})
+    qlora: Optional[bool] = field(default=True, metadata={"help": "Enable QLoRA processing"})
 
 @dataclass
 class DataArguments:
