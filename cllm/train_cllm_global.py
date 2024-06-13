@@ -34,6 +34,8 @@ from typing import Dict
 
 from cllm_trainer_global import CllmTrainer
 
+from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 class ModelArguments:
     target_model_path: Optional[str] = field(
         default="models/vicuna-7b-v1.5",  metadata={"help": "Path to target model"})
+    qlora: Optional[bool] = field(default=False, metadata={"help": "Enable QLoRA processing"})
 
 @dataclass
 class DataArguments:
@@ -251,7 +254,7 @@ def train():
             math.ceil(training_args.model_max_length / orig_ctx_len))
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
     config.use_cache = False
-
+    
     # Load model and tokenizer
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.target_model_path,
@@ -266,6 +269,19 @@ def train():
     )
     if 'vicuna' in model_args.target_model_path:
         tokenizer.pad_token = tokenizer.unk_token
+
+    if model_args.qlora:
+        # Runs w/ qLoRA when qlora tag is enabled is enabled
+        model = prepare_model_for_kbit_training(model)
+        config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=32,
+            lora_alpha=16,
+            lora_dropout=0.05,
+        )
+    
+        model = get_peft_model(model, config)
+        model.config.use_cache = False
 
     # Load data
     data_module = make_jacobian_data_module(tokenizer=tokenizer,
