@@ -99,7 +99,7 @@ class CllmTrainer(Trainer):
         # sync processes
         torch.distributed.barrier()
         # total loss = ar_loss + consistency_global_loss
-        loss = loss_ar + loss_global
+        loss = loss_ar.detach() + loss_global.detach()
 
         return loss
     
