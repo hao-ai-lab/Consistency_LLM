@@ -62,6 +62,8 @@ class CllmTrainer(Trainer):
         label_smoother = LabelSmoother(epsilon=0.1, ignore_index= -100)
         loss_ar = label_smoother(label_student_model_output, labels, shift_labels=True)
         loss_ar*=10
+        if self.args.qlora:
+            loss_ar.requires_grad = True
         print(f'loss ar: {loss_ar} computed! performing backward pass...')
         with self.accelerator.accumulate(model):
             self.accelerator.backward(loss_ar)
@@ -88,6 +90,8 @@ class CllmTrainer(Trainer):
                     logits_last[..., :-1, :].to(logits_i.device).clone().detach().float(),
                     output_mask.to(logits_i.device)
         )
+        if self.args.qlora:
+            loss_global.requires_grad = True
         print(f'loss global {loss_global} computed! performing backward pass...')
         with self.accelerator.accumulate(model):
             self.accelerator.backward(loss_global)

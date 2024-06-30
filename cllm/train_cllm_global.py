@@ -215,6 +215,7 @@ def train():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = int(os.environ["LOCAL_RANK"])
     training_args.local_rank = local_rank
+    training_args.qlora = model_args.qlora
     
     torch.set_default_dtype(torch.float)
 
