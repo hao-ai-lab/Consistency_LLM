@@ -309,7 +309,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
                     dic["answer_trajectory_ids"].insert(0, aug_trajectory)
 
             if use_labels:
-                dic['labels_ids'] = d['labels_ids']
+                dic['labels_ids'] = d['labels_ids'].tolist()
 
             inputs = jacobian_trajectory_ids[-1]
 
