@@ -49,7 +49,7 @@ class CllmTrainer(Trainer):
         if self.use_gt_labels:
             labels = inputs['labels_ids']
         else:
-            labels = inputs['complete_teacher_output_ids']
+            labels = inputs['teacher_output_ids']
         # TODO: check if it's right when batch size > 1
         labels = torch.tensor(labels).to(model.device)
         attention_mask = torch.full_like(labels, 1).to(model.device)
