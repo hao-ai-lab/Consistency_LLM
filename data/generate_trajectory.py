@@ -296,14 +296,21 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
                 # only support batch size=1 now
                 dic["answer_trajectory_ids"].append(id[0][-max_new_tokens:].tolist())
 
+            # if use_aug:
+            #     for j in range(len(dic["answer_trajectory_ids"])-3, 1, -1):
+            #         correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j])!= torch.tensor(dic["answer_trajectory_ids"][-1]))[0]
+            #         if correct_positions.shape[0] > 1:
+            #             corrected_size = random.sample(range(1, correct_positions.shape[0]), k=1)
+            #         else:
+            #             continue
+            #         for correct_id in random.choices(correct_positions, k=corrected_size[0]):
+            #             aug_trajectory = dic["answer_trajectory_ids"][j].copy()
+            #             aug_trajectory[correct_id] = dic["answer_trajectory_ids"][-1][correct_id]
+            #         dic["answer_trajectory_ids"].insert(0, aug_trajectory)
             if use_aug:
-                for j in range(len(dic["answer_trajectory_ids"])-3, 1, -1):
-                    correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j])!= torch.tensor(dic["answer_trajectory_ids"][-1]))[0]
-                    if correct_positions.shape[0] > 1:
-                        corrected_size = random.sample(range(1, correct_positions.shape[0]), k=1)
-                    else:
-                        continue
-                    for correct_id in random.choices(correct_positions, k=corrected_size[0]):
+                for j in range(len(dic["answer_trajectory_ids"])-3, -1, -1):
+                    correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j]!=dic["answer_trajectory_ids"][-1]))[0]
+                    for correct_id in random.choices(correct_positions, k=8):
                         aug_trajectory = dic["answer_trajectory_ids"][j].copy()
                         aug_trajectory[correct_id] = dic["answer_trajectory_ids"][-1][correct_id]
                     dic["answer_trajectory_ids"].insert(0, aug_trajectory)
@@ -351,6 +358,9 @@ if __name__ == "__main__":
     max_new_seq_len = args.max_new_seq_len
     model = LlamaForCausalLM.from_pretrained(model_path, low_cpu_mem_usage=True, device_map='cuda', 
                                              torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
-    tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right", use_fast=True)
+    if 'gsm8k' in model_path.lower():
+        tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right", use_fast=False)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right", use_fast=True)
 
     main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, args.use_aug, args.use_labels, args.data_size)
