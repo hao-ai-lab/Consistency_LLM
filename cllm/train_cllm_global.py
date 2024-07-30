@@ -261,6 +261,9 @@ def train():
         model_args.target_model_path,
         config=config,
         cache_dir=training_args.cache_dir,
+        attn_implementation='flash_attention_2',
+        device_map='cuda',
+        torch_dtype=torch.bfloat16,
     )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
