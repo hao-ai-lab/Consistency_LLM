@@ -269,7 +269,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
     else:
         raise NotImplementedError('Jacobi trajectory collection for dataset: {filename.lower()} is not currently supported.')
         
-    prompt_size = min(len(train_dataset), data_size)
+    prompt_size = min(len(train_dataset), int(data_size))
 
     counter = 0
     new_data = []
@@ -296,24 +296,11 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
                 # only support batch size=1 now
                 dic["answer_trajectory_ids"].append(id[0][-max_new_tokens:].tolist())
 
-            # if use_aug:
-            #     for j in range(len(dic["answer_trajectory_ids"])-3, 1, -1):
-            #         correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j])!= torch.tensor(dic["answer_trajectory_ids"][-1]))[0]
-            #         if correct_positions.shape[0] > 1:
-            #             corrected_size = random.sample(range(1, correct_positions.shape[0]), k=1)
-            #         else:
-            #             continue
-            #         for correct_id in random.choices(correct_positions, k=corrected_size[0]):
-            #             aug_trajectory = dic["answer_trajectory_ids"][j].copy()
-            #             aug_trajectory[correct_id] = dic["answer_trajectory_ids"][-1][correct_id]
-            #         dic["answer_trajectory_ids"].insert(0, aug_trajectory)
             if use_aug:
                 for j in range(len(dic["answer_trajectory_ids"])-3, -1, -1):
-                    correct_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j]!=dic["answer_trajectory_ids"][-1]))[0]
-                    for correct_id in random.choices(correct_positions, k=8):
-                        aug_trajectory = dic["answer_trajectory_ids"][j].copy()
-                        aug_trajectory[correct_id] = dic["answer_trajectory_ids"][-1][correct_id]
-                    dic["answer_trajectory_ids"].insert(0, aug_trajectory)
+                    incorrect_positions = torch.where(torch.tensor(dic["answer_trajectory_ids"][j])!=torch.tensor(dic["answer_trajectory_ids"][-1]))[0]
+                    for correct_id in random.choices(incorrect_positions[1:], k=incorrect_positions.shape[0]//2):
+                        dic["answer_trajectory_ids"][j][correct_id] = dic["answer_trajectory_ids"][-1][correct_id]
 
             if use_labels:
                 dic['labels_ids'] = d['labels_ids'].tolist()
@@ -330,7 +317,7 @@ def main(filename, model, tokenizer, max_new_tokens, max_new_seq_len, use_aug, u
     print('Jacobi trajectory has been collected. Now delete low-quality generation as post processing.')
     save_path = 'data/collected_jacobi_trajectory/'    
     cleaned_data = jacobian_generated_data_postprocessed(new_data, model_path)
-    new_file_name = "cleaned_" + f"{filename.lower()}_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
+    new_file_name = "cleaned_" + f"{filename.lower().split('/')[-1]}_jacobi_max_new_tokens{max_new_tokens}_aug{use_aug}_labels_{use_labels}_max_seq_len_{max_new_seq_len}.json"
     new_file_path = os.path.join(save_path, new_file_name)
     
     # create directory for a path if it doesn't exist
@@ -349,8 +336,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str,
                         default="models/vicuna-7b-v1.5")
     parser.add_argument("--data_size", default=5000)
-    parser.add_argument("--use_aug", default=True)
-    parser.add_argument("--use_labels", default=True)
+    parser.add_argument("--use_aug", action='store_true')
+    parser.add_argument("--use_labels", action='store_true')
     args = parser.parse_args()
     filename = args.filename
     model_path = args.model
