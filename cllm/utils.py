@@ -78,8 +78,8 @@ def jacobian_generated_data_postprocessed(generated_data, model_path):
     low_quality_data_id_lst = []
     # delete low quality data with repetitive pattern
     for i, d in enumerate(generated_data):
-        if detect_repetitive_patterns(tokenizer, np.array(d['prompt_ids']), repeat_ngram_size=10):
-            prompt_ids = np.array(d['prompt_ids'])
+        if detect_repetitive_patterns(tokenizer, np.array(d['teacher_output_ids']), repeat_ngram_size=10):
+            prompt_ids = np.array(d['teacher_output_ids'])
             if len(prompt_ids.shape)==2:
                 prompt_ids = prompt_ids[0]
             elif len(prompt_ids.shape)==3:
