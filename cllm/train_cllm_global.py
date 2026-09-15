@@ -72,6 +72,10 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     use_gt_labels: bool = False
+    consistency_loss_chunk_size: int = field(
+        default=128,
+        metadata={"help": "Tokens per checkpointed consistency-loss chunk; larger values trade memory for speed."},
+    )
     report_to: str = field(
         default='wandb',
         metadata={
