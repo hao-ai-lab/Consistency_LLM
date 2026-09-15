@@ -134,6 +134,12 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/generate_trajectory.sh {filename} {model_pat
 bash scripts/train_cllm.sh {model_path} {trajectory_file} {output_path} {n_token_seq_size}
 ```
 
+Consistency-loss distributions are computed in checkpointed token chunks to
+reduce peak memory. This recomputes intermediates during backward and can
+increase step time. The training entry point `cllm/train_cllm_global.py` accepts
+`--consistency_loss_chunk_size` (default: `128`); larger chunks, such as `512`,
+trade additional memory for fewer checkpoint operations.
+
 ### Evaluation
 We follow the same settings in [human-eval](https://github.com/openai/human-eval), [Spider](https://github.com/taoyds/spider), [MT-bench](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge) and [GSM8K](https://github.com/openai/grade-school-math) evaluate CLLMs' generation quality. An example code to evaluate CLLMs' throughput measured in tokens/s, fast-forwarded token count, stationary token count can be found in `eval` folder. Take GSM8K dataset as an example:
 
